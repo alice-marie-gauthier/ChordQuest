@@ -18,6 +18,17 @@
         <div>
           <span>Chord categories</span>
           <div class="category-grid" id="categories"></div>
+          <div class="recognition-mode" id="recognitionMode">
+            <span>Recognition mode</span>
+            <label>
+              <input type="radio" name="recognitionMode" value="held" checked />
+              <strong>Held chord</strong>
+            </label>
+            <label>
+              <input type="radio" name="recognitionMode" value="arpeggio" />
+              <strong>Arpeggio</strong>
+            </label>
+          </div>
         </div>
         <div class="controls">
           <button id="midiButton" type="button">Use USB MIDI</button>
