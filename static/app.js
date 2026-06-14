@@ -57,6 +57,7 @@ let boyY = 0;
 let jumpVelocity = 0;
 let lastFrame = performance.now();
 let lastRecognitionAt = 0;
+let recognitionTimer = null;
 let midiAccess = null;
 let inputMode = null;
 let midiReady = false;
@@ -170,10 +171,23 @@ function renderNotes() {
   if (notes.length < 3) {
     chordEl.textContent = "Listening";
     detectedChord = null;
+    if (recognitionTimer) {
+      clearTimeout(recognitionTimer);
+      recognitionTimer = null;
+    }
     return;
   }
 
-  recognize(notes);
+  // Debounce recognition briefly to allow multiple near-simultaneous
+  // MIDI note-on messages to arrive (many keyboards send notes slightly
+  // staggered). This helps capture all 4 notes for seventh chords.
+  if (recognitionTimer) {
+    clearTimeout(recognitionTimer);
+  }
+  recognitionTimer = setTimeout(() => {
+    recognitionTimer = null;
+    recognize(notes);
+  }, 50);
 }
 
 function createKeyboardAudio() {
@@ -281,6 +295,10 @@ function noteOff(note) {
 function clearActiveNotes() {
   activeNotes.clear();
   stopAllKeyboardTones();
+  if (recognitionTimer) {
+    clearTimeout(recognitionTimer);
+    recognitionTimer = null;
+  }
   renderNotes();
 }
 
