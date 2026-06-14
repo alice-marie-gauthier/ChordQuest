@@ -264,6 +264,45 @@ function stopAllKeyboardTones() {
   [...keyboardTones.keys()].forEach(stopKeyboardTone);
 }
 
+function playOuchSound() {
+  const audio = createKeyboardAudio();
+  if (!audio || !keyboardMasterGain) {
+    return;
+  }
+
+  const now = audio.currentTime;
+  const voiceGain = audio.createGain();
+  const cry = audio.createOscillator();
+  const bump = audio.createOscillator();
+  const filter = audio.createBiquadFilter();
+
+  cry.type = "sawtooth";
+  cry.frequency.setValueAtTime(520, now);
+  cry.frequency.exponentialRampToValueAtTime(190, now + 0.28);
+
+  bump.type = "triangle";
+  bump.frequency.setValueAtTime(96, now);
+  bump.frequency.exponentialRampToValueAtTime(58, now + 0.16);
+
+  filter.type = "bandpass";
+  filter.frequency.setValueAtTime(820, now);
+  filter.Q.value = 5;
+
+  voiceGain.gain.setValueAtTime(0.0001, now);
+  voiceGain.gain.exponentialRampToValueAtTime(0.5, now + 0.015);
+  voiceGain.gain.exponentialRampToValueAtTime(0.04, now + 0.32);
+
+  cry.connect(filter);
+  bump.connect(filter);
+  filter.connect(voiceGain);
+  voiceGain.connect(keyboardMasterGain);
+
+  cry.start(now);
+  bump.start(now);
+  cry.stop(now + 0.34);
+  bump.stop(now + 0.18);
+}
+
 function noteOn(note, playSound = false) {
   activeNotes.add(note);
   if (playSound) {
@@ -305,6 +344,7 @@ function missChord() {
   }
 
   resolving = true;
+  playOuchSound();
   statusEl.textContent = "Missed chord. Try the next one.";
   updateHud();
 
@@ -338,6 +378,7 @@ async function startGame() {
 
   score = 0;
   updateSpeedFromSlider();
+  createKeyboardAudio();
   obstacleX = canvas.width + 120;
   boyY = 0;
   jumpVelocity = 0;

@@ -12,6 +12,7 @@ Adaptive piano chord runner game scripted in Python with a browser UI.
 - Runner game: the arriving chord is the obstacle, and the boy jumps when the requested chord is correct.
 - Interactive frontend with target-note highlighting and playable on-screen piano keys.
 - Score points for correct chords without a life limit.
+- Play a short "ouch" sound when the runner hits the arriving chord.
 - Stop the game at any time with the stop button.
 - Python backend in `app.py` serves prompts and recognizes chords from MIDI-style note numbers.
 - Unit tests for chord recognition.
