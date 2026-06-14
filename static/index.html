@@ -22,7 +22,12 @@
         <div class="controls">
           <button id="midiButton" type="button">Use USB MIDI</button>
           <button id="keyboardButton" type="button">Use computer keyboard</button>
+          <label class="speed-control">
+            <span>Speed <strong id="speedValue">2.8</strong></span>
+            <input id="speedSlider" type="range" min="1.2" max="7" step="0.1" value="2.8" />
+          </label>
           <button id="startButton" type="button">Start game</button>
+          <button id="stopButton" type="button">Stop game</button>
           <small id="inputStatus">Input: choose USB MIDI or QWERTZ keyboard</small>
         </div>
       </section>
@@ -39,9 +44,9 @@
           <small id="notes">Notes: none</small>
         </div>
         <div>
-          <span>Game</span>
+          <span>Score</span>
           <strong id="score">0 pts</strong>
-          <small id="meta">Level 1 - Lives 3</small>
+          <small id="meta">Speed 2.8</small>
         </div>
       </section>
 

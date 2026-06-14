@@ -37,9 +37,12 @@ const formulaEl = document.querySelector("#formula");
 const scoreEl = document.querySelector("#score");
 const metaEl = document.querySelector("#meta");
 const startButton = document.querySelector("#startButton");
+const stopButton = document.querySelector("#stopButton");
 const midiButton = document.querySelector("#midiButton");
 const keyboardButton = document.querySelector("#keyboardButton");
 const inputStatusEl = document.querySelector("#inputStatus");
+const speedSlider = document.querySelector("#speedSlider");
+const speedValueEl = document.querySelector("#speedValue");
 const canvas = document.querySelector("#game");
 const ctx = canvas.getContext("2d");
 
@@ -48,9 +51,7 @@ let detectedChord = null;
 let gameRunning = false;
 let resolving = false;
 let score = 0;
-let level = 1;
-let lives = 3;
-let speed = 2.8;
+let speed = Number(speedSlider.value);
 let obstacleX = canvas.width + 80;
 let boyY = 0;
 let jumpVelocity = 0;
@@ -285,9 +286,7 @@ function clearActiveNotes() {
 
 function correctAnswer() {
   resolving = true;
-  score += 100 + level * 15;
-  level += 1;
-  speed += 0.45;
+  score += Math.round(100 * speed);
   jumpVelocity = -12;
   statusEl.textContent = "Correct chord. Clean jump!";
   updateHud();
@@ -300,23 +299,14 @@ function correctAnswer() {
   }, 650);
 }
 
-function loseLife() {
+function missChord() {
   if (resolving || !gameRunning) {
     return;
   }
 
-  lives -= 1;
   resolving = true;
-  statusEl.textContent = lives > 0 ? "Missed obstacle. Try the next chord." : "Game over. Start again when ready.";
+  statusEl.textContent = "Missed chord. Try the next one.";
   updateHud();
-
-  if (lives <= 0) {
-    gameRunning = false;
-    window.setTimeout(() => {
-      resolving = false;
-    }, 700);
-    return;
-  }
 
   window.setTimeout(async () => {
     obstacleX = canvas.width + 120;
@@ -327,7 +317,13 @@ function loseLife() {
 
 function updateHud() {
   scoreEl.textContent = `${score} pts`;
-  metaEl.textContent = `Level ${level} - Lives ${lives} - Speed ${speed.toFixed(1)}`;
+  metaEl.textContent = `Speed ${speed.toFixed(1)}`;
+  speedValueEl.textContent = speed.toFixed(1);
+}
+
+function updateSpeedFromSlider() {
+  speed = Number(speedSlider.value);
+  updateHud();
 }
 
 async function startGame() {
@@ -341,9 +337,7 @@ async function startGame() {
   }
 
   score = 0;
-  level = 1;
-  lives = 3;
-  speed = 2.8;
+  updateSpeedFromSlider();
   obstacleX = canvas.width + 120;
   boyY = 0;
   jumpVelocity = 0;
@@ -352,6 +346,16 @@ async function startGame() {
   statusEl.textContent = "Run started. Play the displayed chord before the obstacle arrives.";
   updateHud();
   await fetchPrompt();
+}
+
+function stopGame() {
+  gameRunning = false;
+  resolving = false;
+  clearActiveNotes();
+  obstacleX = canvas.width + 120;
+  arrivalMeterEl.style.width = "0%";
+  statusEl.textContent = "Game stopped. Start again when ready.";
+  updateHud();
 }
 
 function drawBoy(x, groundY) {
@@ -419,10 +423,10 @@ function drawGame(now) {
     arrivalMeterEl.style.width = `${progress * 100}%`;
 
     if (obstacleX < 86 && obstacleX > 40 && boyY > -22) {
-      loseLife();
+      missChord();
     }
     if (obstacleX < -50) {
-      loseLife();
+      missChord();
       obstacleX = canvas.width + 120;
     }
   }
@@ -610,8 +614,10 @@ keysEl.addEventListener("pointercancel", (event) => {
 });
 
 startButton.addEventListener("click", startGame);
+stopButton.addEventListener("click", stopGame);
 midiButton.addEventListener("click", enableMidi);
 keyboardButton.addEventListener("click", enableKeyboard);
+speedSlider.addEventListener("input", updateSpeedFromSlider);
 
 updateHud();
 renderTargetPrompt();
