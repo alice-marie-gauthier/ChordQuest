@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ChordQuest Runner</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <p>ChordQuest Runner</p>
+        <h1>Catch the chord as it arrives.</h1>
+        <span id="status">Choose categories, connect USB MIDI or enable microphone, then start.</span>
+      </section>
+
+      <section class="setup">
+        <div>
+          <span>Chord categories</span>
+          <div class="category-grid" id="categories"></div>
+        </div>
+        <div class="controls">
+          <button id="midiButton" type="button">Use USB MIDI</button>
+          <button id="micButton" type="button">Use microphone</button>
+          <button id="startButton" type="button">Start game</button>
+          <small id="midiStatus">USB MIDI: not connected</small>
+        </div>
+      </section>
+
+      <section class="game-hud">
+        <div>
+          <span>Target chord</span>
+          <strong id="target">Select and start</strong>
+          <small id="formula"></small>
+        </div>
+        <div>
+          <span>Detected</span>
+          <strong id="chord">Listening</strong>
+          <small id="notes">Notes: none</small>
+        </div>
+        <div>
+          <span>Game</span>
+          <strong id="score">0 pts</strong>
+          <small id="meta">Level 1 - Lives 3</small>
+        </div>
+      </section>
+
+      <section class="target-panel" aria-label="Interactive chord target">
+        <div>
+          <span>Arriving chord</span>
+          <strong id="arrivalChord">Waiting</strong>
+        </div>
+        <div class="target-notes" id="targetNotes"></div>
+        <div class="arrival-track" aria-hidden="true">
+          <div id="arrivalMeter"></div>
+        </div>
+      </section>
+
+      <canvas id="game" width="980" height="320" aria-label="Runner game"></canvas>
+
+      <section class="keys" id="keys"></section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>
