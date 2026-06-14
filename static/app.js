@@ -8,7 +8,7 @@ const keyMap = {
   f: 65,
   t: 66,
   g: 67,
-  y: 68,
+  z: 68,
   h: 69,
   u: 70,
   j: 71,
@@ -38,8 +38,8 @@ const scoreEl = document.querySelector("#score");
 const metaEl = document.querySelector("#meta");
 const startButton = document.querySelector("#startButton");
 const midiButton = document.querySelector("#midiButton");
-const micButton = document.querySelector("#micButton");
-const midiStatusEl = document.querySelector("#midiStatus");
+const keyboardButton = document.querySelector("#keyboardButton");
+const inputStatusEl = document.querySelector("#inputStatus");
 const canvas = document.querySelector("#game");
 const ctx = canvas.getContext("2d");
 
@@ -56,11 +56,9 @@ let boyY = 0;
 let jumpVelocity = 0;
 let lastFrame = performance.now();
 let lastRecognitionAt = 0;
-let micAnimation = null;
-let audioContext = null;
-let analyser = null;
-let frequencyData = null;
 let midiAccess = null;
+let inputMode = null;
+let midiReady = false;
 
 categoryList.forEach(([id, label]) => {
   const item = document.createElement("label");
@@ -234,6 +232,15 @@ function updateHud() {
 }
 
 async function startGame() {
+  if (!inputMode) {
+    statusEl.textContent = "Choose USB MIDI or computer keyboard before starting.";
+    return;
+  }
+  if (inputMode === "midi" && !midiReady) {
+    statusEl.textContent = "USB MIDI is selected, but no MIDI input is detected yet.";
+    return;
+  }
+
   score = 0;
   level = 1;
   lives = 3;
@@ -346,6 +353,10 @@ function midiInputName(input) {
 }
 
 function handleMidiMessage(event) {
+  if (inputMode !== "midi") {
+    return;
+  }
+
   const [command, note, velocity] = event.data;
   const type = command & 0xf0;
 
@@ -372,10 +383,15 @@ function connectMidiInputs() {
 }
 
 function updateMidiStatus() {
+  if (inputMode !== "midi") {
+    return;
+  }
+
   const inputs = connectMidiInputs();
 
   if (!inputs.length) {
-    midiStatusEl.textContent = "USB MIDI: no input detected";
+    midiReady = false;
+    inputStatusEl.textContent = "USB MIDI: no input detected";
     statusEl.textContent =
       "No USB MIDI input detected. Plug in the keyboard, keep it powered on, then click Use USB MIDI again.";
     midiButton.textContent = "Retry USB MIDI";
@@ -384,19 +400,26 @@ function updateMidiStatus() {
   }
 
   const names = inputs.map(midiInputName).join(", ");
-  midiStatusEl.textContent = `USB MIDI: ${inputs.length} input${inputs.length === 1 ? "" : "s"} connected`;
+  midiReady = true;
+  inputStatusEl.textContent = `USB MIDI: ${inputs.length} input${inputs.length === 1 ? "" : "s"} connected`;
   statusEl.textContent = `USB MIDI ready: ${names}. Play your piano keyboard.`;
   midiButton.textContent = "Refresh USB MIDI";
+  midiButton.classList.add("selected");
+  keyboardButton.classList.remove("selected");
 }
 
 async function enableMidi() {
+  inputMode = "midi";
+  midiReady = false;
+  clearActiveNotes();
+
   if (!navigator.requestMIDIAccess) {
     statusEl.textContent = "Web MIDI is not supported by this browser. Try Chrome or Edge.";
-    midiStatusEl.textContent = "USB MIDI: unsupported browser";
+    inputStatusEl.textContent = "USB MIDI: unsupported browser";
     return;
   }
 
-  midiStatusEl.textContent = "USB MIDI: requesting access";
+  inputStatusEl.textContent = "USB MIDI: requesting access";
 
   try {
     midiAccess = await navigator.requestMIDIAccess({ sysex: false });
@@ -406,99 +429,53 @@ async function enableMidi() {
     updateMidiStatus();
   } catch (error) {
     const denied = error?.name === "SecurityError" || error?.name === "NotAllowedError";
-    midiStatusEl.textContent = denied ? "USB MIDI: permission denied" : "USB MIDI: connection failed";
+    inputStatusEl.textContent = denied ? "USB MIDI: permission denied" : "USB MIDI: connection failed";
     statusEl.textContent = denied
       ? "USB MIDI permission was blocked. Allow MIDI access in the browser prompt or site settings, then retry."
       : "USB MIDI could not start. Check the cable, keyboard power, and browser MIDI permissions, then retry.";
   }
 }
 
-function frequencyForMidi(note) {
-  return 440 * 2 ** ((note - 69) / 12);
-}
-
-function estimateMicNotes() {
-  if (!analyser || !frequencyData || !audioContext) {
-    return;
-  }
-
-  analyser.getByteFrequencyData(frequencyData);
-  const sampleRate = audioContext.sampleRate;
-  const nyquist = sampleRate / 2;
-  const candidates = [];
-
-  for (let midi = 48; midi <= 84; midi += 1) {
-    const frequency = frequencyForMidi(midi);
-    const bin = Math.round((frequency / nyquist) * frequencyData.length);
-    const energy =
-      (frequencyData[bin - 1] || 0) + frequencyData[bin] + (frequencyData[bin + 1] || 0);
-
-    if (energy > 95) {
-      candidates.push({ midi, pitchClass: midi % 12, energy });
-    }
-  }
-
-  candidates.sort((a, b) => b.energy - a.energy);
-  const notes = [];
-  const pitchClasses = [];
-
-  for (const candidate of candidates) {
-    if (!pitchClasses.includes(candidate.pitchClass)) {
-      pitchClasses.push(candidate.pitchClass);
-      notes.push(candidate.midi);
-    }
-    if (pitchClasses.length >= 5) {
-      break;
-    }
-  }
-
-  notes.sort((a, b) => a - b);
-  notesEl.textContent = `Notes: ${notesText(notes)}`;
-  recognize(notes);
-  micAnimation = requestAnimationFrame(estimateMicNotes);
-}
-
-async function enableMicrophone() {
-  if (!navigator.mediaDevices?.getUserMedia) {
-    statusEl.textContent = "Microphone input is not supported by this browser.";
-    return;
-  }
-
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      echoCancellation: false,
-      noiseSuppression: false,
-      autoGainControl: false
-    }
-  });
-  audioContext = new AudioContext();
-  analyser = audioContext.createAnalyser();
-  analyser.fftSize = 16384;
-  frequencyData = new Uint8Array(analyser.frequencyBinCount);
-  audioContext.createMediaStreamSource(stream).connect(analyser);
-  statusEl.textContent = "Microphone listening. Put the computer close to the piano for best results.";
-
-  if (micAnimation) {
-    cancelAnimationFrame(micAnimation);
-  }
-  estimateMicNotes();
+function enableKeyboard() {
+  inputMode = "keyboard";
+  midiReady = false;
+  clearActiveNotes();
+  inputStatusEl.textContent = "Computer keyboard: QWERTZ mode active";
+  statusEl.textContent = "Computer keyboard ready. Use A W S E D F T G Z H U J K.";
+  keyboardButton.classList.add("selected");
+  midiButton.classList.remove("selected");
 }
 
 window.addEventListener("keydown", (event) => {
+  if (inputMode !== "keyboard") {
+    return;
+  }
+
   const note = keyMap[event.key.toLowerCase()];
   if (note !== undefined && !event.repeat) {
+    event.preventDefault();
     noteOn(note);
   }
 });
 
 window.addEventListener("keyup", (event) => {
+  if (inputMode !== "keyboard") {
+    return;
+  }
+
   const note = keyMap[event.key.toLowerCase()];
   if (note !== undefined) {
+    event.preventDefault();
     noteOff(note);
   }
 });
 
 keysEl.addEventListener("pointerdown", (event) => {
+  if (inputMode !== "keyboard") {
+    statusEl.textContent = "Select computer keyboard mode to use the on-screen keys.";
+    return;
+  }
+
   const button = event.target.closest("[data-note]");
   if (!button) {
     return;
@@ -509,6 +486,10 @@ keysEl.addEventListener("pointerdown", (event) => {
 });
 
 keysEl.addEventListener("pointerup", (event) => {
+  if (inputMode !== "keyboard") {
+    return;
+  }
+
   const button = event.target.closest("[data-note]");
   if (button) {
     noteOff(Number(button.dataset.note));
@@ -516,6 +497,10 @@ keysEl.addEventListener("pointerup", (event) => {
 });
 
 keysEl.addEventListener("pointercancel", (event) => {
+  if (inputMode !== "keyboard") {
+    return;
+  }
+
   const button = event.target.closest("[data-note]");
   if (button) {
     noteOff(Number(button.dataset.note));
@@ -524,7 +509,7 @@ keysEl.addEventListener("pointercancel", (event) => {
 
 startButton.addEventListener("click", startGame);
 midiButton.addEventListener("click", enableMidi);
-micButton.addEventListener("click", enableMicrophone);
+keyboardButton.addEventListener("click", enableKeyboard);
 
 updateHud();
 renderTargetPrompt();

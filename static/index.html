@@ -11,7 +11,7 @@
       <section class="hero">
         <p>ChordQuest Runner</p>
         <h1>Catch the chord as it arrives.</h1>
-        <span id="status">Choose categories, connect USB MIDI or enable microphone, then start.</span>
+        <span id="status">Choose categories, select USB MIDI or computer keyboard, then start.</span>
       </section>
 
       <section class="setup">
@@ -21,9 +21,9 @@
         </div>
         <div class="controls">
           <button id="midiButton" type="button">Use USB MIDI</button>
-          <button id="micButton" type="button">Use microphone</button>
+          <button id="keyboardButton" type="button">Use computer keyboard</button>
           <button id="startButton" type="button">Start game</button>
-          <small id="midiStatus">USB MIDI: not connected</small>
+          <small id="inputStatus">Input: choose USB MIDI or QWERTZ keyboard</small>
         </div>
       </section>
 
@@ -58,6 +58,7 @@
 
       <canvas id="game" width="980" height="320" aria-label="Runner game"></canvas>
 
+      <p class="keyboard-guide">QWERTZ keyboard: A W S E D F T G Z H U J K</p>
       <section class="keys" id="keys"></section>
     </main>
     <script src="/app.js"></script>
