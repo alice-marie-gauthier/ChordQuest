@@ -59,6 +59,9 @@ let lastRecognitionAt = 0;
 let midiAccess = null;
 let inputMode = null;
 let midiReady = false;
+let keyboardAudioContext = null;
+let keyboardMasterGain = null;
+const keyboardTones = new Map();
 
 categoryList.forEach(([id, label]) => {
   const item = document.createElement("label");
@@ -82,6 +85,10 @@ function selectedCategories() {
 
 function midiToName(note) {
   return noteNames[((note % 12) + 12) % 12];
+}
+
+function midiToFrequency(note) {
+  return 440 * 2 ** ((note - 69) / 12);
 }
 
 function notesText(notes) {
@@ -168,18 +175,111 @@ function renderNotes() {
   recognize(notes);
 }
 
-function noteOn(note) {
+function createKeyboardAudio() {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+
+  if (!AudioContextClass) {
+    statusEl.textContent = "Browser audio is not supported here.";
+    return null;
+  }
+
+  if (!keyboardAudioContext) {
+    keyboardAudioContext = new AudioContextClass();
+    keyboardMasterGain = keyboardAudioContext.createGain();
+    keyboardMasterGain.gain.value = 0.65;
+    keyboardMasterGain.connect(keyboardAudioContext.destination);
+  }
+
+  if (keyboardAudioContext.state === "suspended") {
+    keyboardAudioContext.resume();
+  }
+
+  return keyboardAudioContext;
+}
+
+function startKeyboardTone(note) {
+  if (keyboardTones.has(note)) {
+    return;
+  }
+
+  const audio = createKeyboardAudio();
+  if (!audio || !keyboardMasterGain) {
+    return;
+  }
+
+  const now = audio.currentTime;
+  const frequency = midiToFrequency(note);
+  const toneGain = audio.createGain();
+  const filter = audio.createBiquadFilter();
+  const body = audio.createOscillator();
+  const sparkle = audio.createOscillator();
+  const bodyGain = audio.createGain();
+  const sparkleGain = audio.createGain();
+
+  body.type = "triangle";
+  body.frequency.setValueAtTime(frequency, now);
+
+  sparkle.type = "sine";
+  sparkle.frequency.setValueAtTime(frequency * 2.01, now);
+
+  bodyGain.gain.value = 0.78;
+  sparkleGain.gain.value = 0.22;
+
+  filter.type = "lowpass";
+  filter.frequency.setValueAtTime(4200, now);
+  filter.frequency.exponentialRampToValueAtTime(1500, now + 0.35);
+
+  toneGain.gain.setValueAtTime(0.0001, now);
+  toneGain.gain.exponentialRampToValueAtTime(0.42, now + 0.012);
+  toneGain.gain.exponentialRampToValueAtTime(0.18, now + 0.22);
+
+  body.connect(bodyGain);
+  sparkle.connect(sparkleGain);
+  bodyGain.connect(filter);
+  sparkleGain.connect(filter);
+  filter.connect(toneGain);
+  toneGain.connect(keyboardMasterGain);
+
+  body.start(now);
+  sparkle.start(now);
+  keyboardTones.set(note, { body, sparkle, toneGain });
+}
+
+function stopKeyboardTone(note) {
+  const tone = keyboardTones.get(note);
+  if (!tone || !keyboardAudioContext) {
+    return;
+  }
+
+  const now = keyboardAudioContext.currentTime;
+  tone.toneGain.gain.cancelScheduledValues(now);
+  tone.toneGain.gain.setTargetAtTime(0.0001, now, 0.055);
+  tone.body.stop(now + 0.28);
+  tone.sparkle.stop(now + 0.28);
+  keyboardTones.delete(note);
+}
+
+function stopAllKeyboardTones() {
+  [...keyboardTones.keys()].forEach(stopKeyboardTone);
+}
+
+function noteOn(note, playSound = false) {
   activeNotes.add(note);
+  if (playSound) {
+    startKeyboardTone(note);
+  }
   renderNotes();
 }
 
 function noteOff(note) {
   activeNotes.delete(note);
+  stopKeyboardTone(note);
   renderNotes();
 }
 
 function clearActiveNotes() {
   activeNotes.clear();
+  stopAllKeyboardTones();
   renderNotes();
 }
 
@@ -193,8 +293,7 @@ function correctAnswer() {
   updateHud();
 
   window.setTimeout(async () => {
-    activeNotes.clear();
-    renderNotes();
+    clearActiveNotes();
     obstacleX = canvas.width + 120;
     await fetchPrompt();
     resolving = false;
@@ -440,8 +539,9 @@ function enableKeyboard() {
   inputMode = "keyboard";
   midiReady = false;
   clearActiveNotes();
+  createKeyboardAudio();
   inputStatusEl.textContent = "Computer keyboard: QWERTZ mode active";
-  statusEl.textContent = "Computer keyboard ready. Use A W S E D F T G Z H U J K.";
+  statusEl.textContent = "Computer keyboard ready with piano sound. Use A W S E D F T G Z H U J K.";
   keyboardButton.classList.add("selected");
   midiButton.classList.remove("selected");
 }
@@ -454,7 +554,7 @@ window.addEventListener("keydown", (event) => {
   const note = keyMap[event.key.toLowerCase()];
   if (note !== undefined && !event.repeat) {
     event.preventDefault();
-    noteOn(note);
+    noteOn(note, true);
   }
 });
 
@@ -470,6 +570,8 @@ window.addEventListener("keyup", (event) => {
   }
 });
 
+window.addEventListener("blur", clearActiveNotes);
+
 keysEl.addEventListener("pointerdown", (event) => {
   if (inputMode !== "keyboard") {
     statusEl.textContent = "Select computer keyboard mode to use the on-screen keys.";
@@ -482,7 +584,7 @@ keysEl.addEventListener("pointerdown", (event) => {
   }
 
   button.setPointerCapture(event.pointerId);
-  noteOn(Number(button.dataset.note));
+  noteOn(Number(button.dataset.note), true);
 });
 
 keysEl.addEventListener("pointerup", (event) => {
