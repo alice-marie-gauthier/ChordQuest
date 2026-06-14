@@ -24,7 +24,9 @@ const categoryList = [
 ];
 
 const activeNotes = new Set();
+const arpeggioNotes = new Map();
 const categoriesEl = document.querySelector("#categories");
+const recognitionModeEl = document.querySelector("#recognitionMode");
 const notesEl = document.querySelector("#notes");
 const chordEl = document.querySelector("#chord");
 const keysEl = document.querySelector("#keys");
@@ -62,7 +64,10 @@ let inputMode = null;
 let midiReady = false;
 let keyboardAudioContext = null;
 let keyboardMasterGain = null;
+let lastWrongSoundAt = 0;
+let arpeggioResetTimer = null;
 const keyboardTones = new Map();
+const ARPEGGIO_WINDOW_MS = 1800;
 
 categoryList.forEach(([id, label]) => {
   const item = document.createElement("label");
@@ -82,6 +87,10 @@ Object.entries(keyMap).forEach(([key, note]) => {
 
 function selectedCategories() {
   return [...categoriesEl.querySelectorAll("input:checked")].map((input) => input.value);
+}
+
+function recognitionMode() {
+  return recognitionModeEl.querySelector("input:checked")?.value || "held";
 }
 
 function midiToName(note) {
@@ -141,7 +150,8 @@ function isCorrectChord(chord) {
 }
 
 async function recognize(notes) {
-  if (notes.length < 3 || performance.now() - lastRecognitionAt < 180) {
+  const neededNotes = Math.max(3, targetPrompt?.midi_notes?.length || 3);
+  if (notes.length < neededNotes || performance.now() - lastRecognitionAt < 180) {
     return;
   }
 
@@ -152,13 +162,22 @@ async function recognize(notes) {
   chordEl.textContent = detectedChord ? detectedChord.symbol : "Unknown";
   notesEl.textContent = `Notes: ${notesText(notes)}`;
 
-  if (gameRunning && !resolving && isCorrectChord(detectedChord)) {
-    correctAnswer();
+  if (gameRunning && !resolving) {
+    if (isCorrectChord(detectedChord)) {
+      correctAnswer();
+      return;
+    }
+
+    playWrongChordSound();
+    statusEl.textContent = "Try again before it arrives.";
   }
 }
 
 function renderNotes() {
-  const notes = [...activeNotes].sort((a, b) => a - b);
+  const notes =
+    recognitionMode() === "arpeggio"
+      ? [...arpeggioNotes.keys()].sort((a, b) => a - b)
+      : [...activeNotes].sort((a, b) => a - b);
   notesEl.textContent = `Notes: ${notesText(notes)}`;
 
   document.querySelectorAll("[data-note]").forEach((button) => {
@@ -174,6 +193,25 @@ function renderNotes() {
   }
 
   recognize(notes);
+}
+
+function pruneArpeggioNotes(now = performance.now()) {
+  arpeggioNotes.forEach((playedAt, note) => {
+    if (now - playedAt > ARPEGGIO_WINDOW_MS) {
+      arpeggioNotes.delete(note);
+    }
+  });
+}
+
+function scheduleArpeggioReset() {
+  if (arpeggioResetTimer) {
+    window.clearTimeout(arpeggioResetTimer);
+  }
+
+  arpeggioResetTimer = window.setTimeout(() => {
+    arpeggioNotes.clear();
+    renderNotes();
+  }, ARPEGGIO_WINDOW_MS + 80);
 }
 
 function createKeyboardAudio() {
@@ -303,8 +341,70 @@ function playOuchSound() {
   bump.stop(now + 0.18);
 }
 
+function playWrongChordSound() {
+  const nowMs = performance.now();
+  if (nowMs - lastWrongSoundAt < 520) {
+    return;
+  }
+  lastWrongSoundAt = nowMs;
+
+  if ("speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
+    const error = new SpeechSynthesisUtterance("error");
+    error.lang = "en-US";
+    error.volume = 1;
+    error.rate = 1;
+    error.pitch = 1.15;
+    window.speechSynthesis.speak(error);
+    return;
+  }
+
+  const audio = createKeyboardAudio();
+  if (!audio || !keyboardMasterGain) {
+    return;
+  }
+
+  const notes = [
+    { start: 0, frequency: 360, duration: 0.1 },
+    { start: 0.11, frequency: 260, duration: 0.09 },
+    { start: 0.2, frequency: 220, duration: 0.09 },
+    { start: 0.29, frequency: 180, duration: 0.12 }
+  ];
+
+  notes.forEach(({ start, frequency, duration }) => {
+    const startAt = audio.currentTime + start;
+    const endAt = startAt + duration;
+    const oscillator = audio.createOscillator();
+    const gain = audio.createGain();
+    const filter = audio.createBiquadFilter();
+
+    oscillator.type = "square";
+    oscillator.frequency.setValueAtTime(frequency, startAt);
+    oscillator.frequency.exponentialRampToValueAtTime(frequency * 0.82, endAt);
+
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(1400, startAt);
+    filter.Q.value = 2;
+
+    gain.gain.setValueAtTime(0.0001, startAt);
+    gain.gain.exponentialRampToValueAtTime(0.78, startAt + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, endAt);
+
+    oscillator.connect(filter);
+    filter.connect(gain);
+    gain.connect(keyboardMasterGain);
+    oscillator.start(startAt);
+    oscillator.stop(endAt + 0.02);
+  });
+}
+
 function noteOn(note, playSound = false) {
   activeNotes.add(note);
+  if (recognitionMode() === "arpeggio") {
+    pruneArpeggioNotes();
+    arpeggioNotes.set(note, performance.now());
+    scheduleArpeggioReset();
+  }
   if (playSound) {
     startKeyboardTone(note);
   }
@@ -319,6 +419,11 @@ function noteOff(note) {
 
 function clearActiveNotes() {
   activeNotes.clear();
+  arpeggioNotes.clear();
+  if (arpeggioResetTimer) {
+    window.clearTimeout(arpeggioResetTimer);
+    arpeggioResetTimer = null;
+  }
   stopAllKeyboardTones();
   renderNotes();
 }
@@ -659,6 +764,14 @@ stopButton.addEventListener("click", stopGame);
 midiButton.addEventListener("click", enableMidi);
 keyboardButton.addEventListener("click", enableKeyboard);
 speedSlider.addEventListener("input", updateSpeedFromSlider);
+recognitionModeEl.addEventListener("change", () => {
+  clearActiveNotes();
+  chordEl.textContent = "Listening";
+  statusEl.textContent =
+    recognitionMode() === "arpeggio"
+      ? "Arpeggio recognition active. Play the notes one after another."
+      : "Held chord recognition active. Hold the notes together.";
+});
 
 updateHud();
 renderTargetPrompt();
