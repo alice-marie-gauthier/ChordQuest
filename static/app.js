@@ -70,6 +70,19 @@ let arpeggioResetTimer = null;
 const keyboardTones = new Map();
 const ARPEGGIO_WINDOW_MS = 1800;
 
+const WRONG_PHRASES = [
+  "LOL — try again.",
+  "Close! Loser.",
+  "Almost there ! ... or not.",
+  "That wasn't it at all bitch.",
+  "Nice attempt ... for a retard.",,
+  "You're so bad !",
+  "Maybe music isn't for you",
+  "Nope.",
+  "Try again with the good notes.",
+  "You have not talent."
+];
+
 categoryList.forEach(([id, label]) => {
   const item = document.createElement("label");
   item.className = "category";
@@ -364,12 +377,13 @@ function playWrongChordSound() {
 
   if ("speechSynthesis" in window) {
     window.speechSynthesis.cancel();
-    const error = new SpeechSynthesisUtterance("error");
-    error.lang = "en-US";
-    error.volume = 1;
-    error.rate = 1;
-    error.pitch = 1.15;
-    window.speechSynthesis.speak(error);
+    const phrase = WRONG_PHRASES[Math.floor(Math.random() * WRONG_PHRASES.length)];
+    const utterance = new SpeechSynthesisUtterance(phrase);
+    utterance.lang = "en-US";
+    utterance.volume = 1;
+    utterance.rate = 1;
+    utterance.pitch = 1.15;
+    window.speechSynthesis.speak(utterance);
     return;
   }
 
