@@ -33,7 +33,6 @@ const keysEl = document.querySelector("#keys");
 const statusEl = document.querySelector("#status");
 const targetEl = document.querySelector("#target");
 const arrivalChordEl = document.querySelector("#arrivalChord");
-const targetNotesEl = document.querySelector("#targetNotes");
 const arrivalMeterEl = document.querySelector("#arrivalMeter");
 const formulaEl = document.querySelector("#formula");
 const scoreEl = document.querySelector("#score");
@@ -69,19 +68,38 @@ let lastWrongSoundAt = 0;
 let arpeggioResetTimer = null;
 const keyboardTones = new Map();
 const ARPEGGIO_WINDOW_MS = 1800;
-
 const WRONG_PHRASES = [
-  "LOL — try again.",
+  "LOL - try again.",
   "Close! Loser.",
   "Almost there ! ... or not.",
   "That wasn't it at all bitch.",
-  "Nice attempt ... for a retard.",,
+  "Nice attempt ... for a retard.",
   "You're so bad !",
   "Maybe music isn't for you",
   "Nope.",
   "Try again with the good notes.",
   "You have not talent."
 ];
+
+const noteNameToPitchClass = {
+  C: 0,
+  "C#": 1,
+  Db: 1,
+  D: 2,
+  "D#": 3,
+  Eb: 3,
+  E: 4,
+  F: 5,
+  "F#": 6,
+  Gb: 6,
+  G: 7,
+  "G#": 8,
+  Ab: 8,
+  A: 9,
+  "A#": 10,
+  Bb: 10,
+  B: 11
+};
 
 categoryList.forEach(([id, label]) => {
   const item = document.createElement("label");
@@ -119,8 +137,8 @@ function notesText(notes) {
   return notes.map(midiToName).join(" - ") || "none";
 }
 
-function targetPitchClasses() {
-  return new Set((targetPrompt?.midi_notes || []).map((note) => note % 12));
+function sameRoot(left, right) {
+  return noteNameToPitchClass[left] === noteNameToPitchClass[right];
 }
 
 function renderTargetPrompt() {
@@ -128,16 +146,12 @@ function renderTargetPrompt() {
     targetEl.textContent = "Select and start";
     arrivalChordEl.textContent = "Waiting";
     formulaEl.textContent = "";
-    targetNotesEl.innerHTML = "";
     return;
   }
 
   targetEl.textContent = targetPrompt.symbol;
   arrivalChordEl.textContent = targetPrompt.symbol;
-  formulaEl.textContent = `${targetPrompt.notes.join(" - ")} | ${targetPrompt.formula}`;
-  targetNotesEl.innerHTML = targetPrompt.notes
-    .map((note) => `<span>${note}</span>`)
-    .join("");
+  formulaEl.textContent = "";
   renderNotes();
 }
 
@@ -156,7 +170,7 @@ function isCorrectChord(chord) {
   }
 
   const familyMatches = chord.family_id === targetPrompt.family_id;
-  const rootMatches = chord.root === targetPrompt.root;
+  const rootMatches = sameRoot(chord.root, targetPrompt.root);
   const inversionMatches =
     targetPrompt.category !== "inversions" || chord.inversion === targetPrompt.inversion;
 
@@ -197,7 +211,6 @@ function renderNotes() {
   document.querySelectorAll("[data-note]").forEach((button) => {
     const note = Number(button.dataset.note);
     button.classList.toggle("active", activeNotes.has(note));
-    button.classList.toggle("target-note", targetPitchClasses().has(note % 12));
   });
 
   if (notes.length < 3) {
@@ -329,7 +342,18 @@ function stopAllKeyboardTones() {
   [...keyboardTones.keys()].forEach(stopKeyboardTone);
 }
 
-function playOuchSound() {
+function playGameOverSound() {
+  if ("speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
+    const gameOver = new SpeechSynthesisUtterance("game over");
+    gameOver.lang = "en-US";
+    gameOver.volume = 1;
+    gameOver.rate = 0.92;
+    gameOver.pitch = 0.8;
+    window.speechSynthesis.speak(gameOver);
+    return;
+  }
+
   const audio = createKeyboardAudio();
   if (!audio || !keyboardMasterGain) {
     return;
@@ -481,7 +505,7 @@ function missChord() {
   }
 
   resolving = true;
-  playOuchSound();
+  playGameOverSound();
   statusEl.textContent = "Missed chord. Try the next one.";
   updateHud();
 

@@ -211,7 +211,7 @@ button.selected {
 }
 
 .target-panel {
-  grid-template-columns: 190px minmax(0, 1fr) 240px;
+  grid-template-columns: 190px minmax(220px, 1fr);
   align-items: center;
 }
 
@@ -219,27 +219,6 @@ button.selected {
   display: block;
   font-size: 2rem;
   line-height: 1;
-}
-
-.target-notes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.target-notes span {
-  display: grid;
-  width: 48px;
-  height: 48px;
-  margin: 0;
-  place-items: center;
-  border: 2px solid #2e6553;
-  border-radius: 999px;
-  color: #17211c;
-  background: #f8fff7;
-  font-size: 1rem;
-  font-weight: 900;
-  text-transform: none;
 }
 
 .arrival-track {
@@ -287,15 +266,6 @@ button.selected {
 button.active {
   background: #f3b03d;
   box-shadow: inset 0 -8px 0 rgba(188, 64, 52, 0.26);
-}
-
-button.target-note {
-  border-color: #2e6553;
-  box-shadow: inset 0 0 0 2px rgba(46, 101, 83, 0.24);
-}
-
-button.active.target-note {
-  border-color: #bc4034;
 }
 
 @media (max-width: 820px) {
