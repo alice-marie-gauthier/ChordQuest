@@ -123,7 +123,10 @@ def detect_inversion(midi_notes: list[int], root: int, chord_notes: list[int]) -
     except ValueError:
         return 0
 
-    return index if index in (1, 2) else 0
+    # Return a non-zero inversion index when the lowest pitch class
+    # corresponds to a non-root chord tone. Support any inversion
+    # index up to the number of chord tones (e.g. 1..len(chord_notes)-1).
+    return index if 0 < index < len(ordered) else 0
 
 
 def recognize_chord(midi_notes: list[int]) -> RecognizedChord | None:
@@ -132,10 +135,39 @@ def recognize_chord(midi_notes: list[int]) -> RecognizedChord | None:
     if len(notes) < 3:
         return None
 
+    # First try exact interval set matches using each played pitch-class as root.
     for root in notes:
         intervals = sorted((note - root) % 12 for note in notes)
         family = next(
             (candidate for candidate in CHORD_FAMILIES if compact_intervals(candidate.intervals) == intervals),
+            None,
+        )
+
+        if family:
+            root_name = NOTE_NAMES[root]
+            symbol = f"{root_name}{family.suffix or ''}"
+
+            return {
+                "root": root_name,
+                "family_id": family.id,
+                "quality": family.label,
+                "symbol": symbol,
+                "notes": [NOTE_NAMES[note] for note in notes],
+                "inversion": detect_inversion(midi_notes, root, notes),
+            }
+
+    # If no exact match, fall back to tolerant matching. This handles cases
+    # where an extension is present (extra pitch-classes) or the root tone
+    # is omitted from the played notes. Try all possible roots and accept
+    # a family when its compact intervals are a subset of the detected intervals.
+    for root in range(12):
+        intervals_set = {((note - root) % 12) for note in notes}
+        family = next(
+            (
+                candidate
+                for candidate in CHORD_FAMILIES
+                if set(compact_intervals(candidate.intervals)).issubset(intervals_set)
+            ),
             None,
         )
 
