@@ -67,6 +67,35 @@ let keyboardAudioContext = null;
 let keyboardMasterGain = null;
 let lastWrongSoundAt = 0;
 let arpeggioResetTimer = null;
+// Head image for the jumping character. Place `photo_tete_bonhomme.png` in the
+// `static` folder to use your photo. If not present a built-in SVG placeholder
+// will be used so you can see the effect immediately.
+const HEAD_IMAGE_SRC = "photo_tete_bonhomme.png";
+const HEAD_SIZE = 60;
+const headImage = new Image();
+let headImageReady = false;
+const FALLBACK_HEAD_SVG = `
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+    <rect width="100%" height="100%" rx="8" fill="none"/>
+    <circle cx="24" cy="18" r="12" fill="#f0b37e" stroke="#17211c" stroke-width="2"/>
+    <circle cx="19" cy="16" r="2" fill="#17211c"/>
+    <circle cx="29" cy="16" r="2" fill="#17211c"/>
+    <path d="M18 24 Q24 30 30 24" stroke="#17211c" stroke-width="2" fill="none" stroke-linecap="round"/>
+  </svg>
+`;
+
+headImage.onload = () => {
+  headImageReady = true;
+};
+headImage.onerror = () => {
+  // If the provided image isn't found, use the embedded SVG fallback.
+  try {
+    headImage.src = 'data:image/svg+xml;utf8,' + encodeURIComponent(FALLBACK_HEAD_SVG);
+  } catch (e) {
+    headImageReady = false;
+  }
+};
+headImage.src = HEAD_IMAGE_SRC;
 const keyboardTones = new Map();
 const ARPEGGIO_WINDOW_MS = 1800;
 
@@ -540,10 +569,28 @@ function drawBoy(x, groundY) {
   const y = groundY - 54 + boyY;
   ctx.fillStyle = "#2e6553";
   ctx.fillRect(x + 12, y + 20, 22, 32);
-  ctx.fillStyle = "#f0b37e";
-  ctx.beginPath();
-  ctx.arc(x + 23, y + 10, 12, 0, Math.PI * 2);
-  ctx.fill();
+  // Draw head: use the user's photo if available, else draw a circle.
+  if (headImageReady) {
+    // Clip to a circle so the photo appears round like the original head.
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x + 23, y + 10, HEAD_SIZE / 2, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(headImage, x + 23 - HEAD_SIZE / 2, y + 10 - HEAD_SIZE / 2, HEAD_SIZE, HEAD_SIZE);
+    ctx.restore();
+    // Draw a thin outline around the clipped image to match style.
+    ctx.strokeStyle = "#17211c";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x + 23, y + 10, HEAD_SIZE / 2, 0, Math.PI * 2);
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = "#f0b37e";
+    ctx.beginPath();
+    ctx.arc(x + 23, y + 10, 12, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.strokeStyle = "#17211c";
   ctx.lineWidth = 4;
   ctx.beginPath();
