@@ -6,6 +6,25 @@ from typing import TypedDict
 
 
 NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+NOTE_ALIASES = {
+    "C": 0,
+    "C#": 1,
+    "Db": 1,
+    "D": 2,
+    "D#": 3,
+    "Eb": 3,
+    "E": 4,
+    "F": 5,
+    "F#": 6,
+    "Gb": 6,
+    "G": 7,
+    "G#": 8,
+    "Ab": 8,
+    "A": 9,
+    "A#": 10,
+    "Bb": 10,
+    "B": 11,
+}
 
 
 class RecognizedChord(TypedDict):
@@ -53,7 +72,7 @@ CHORD_FAMILIES = (
     ChordFamily("thirteenth", "extensions", "13th", "13", (0, 4, 7, 10, 14, 17, 21), "1-3-5-b7-9-11-13"),
 )
 
-ROOTS = ("C", "D", "E", "F", "G", "A", "B")
+ROOTS = ("C", "C#", "Db", "D", "D#", "Eb", "E", "F", "F#", "Gb", "G", "G#", "Ab", "A", "A#", "Bb", "B")
 CATEGORY_LABELS = {
     "major": "Major",
     "minor": "Minor",
@@ -104,7 +123,7 @@ def compact_intervals(intervals: tuple[int, ...]) -> list[int]:
 
 
 def pitch_class(note_name: str) -> int:
-    return NOTE_NAMES.index(note_name)
+    return NOTE_ALIASES[note_name]
 
 
 def family_by_id(family_id: str) -> ChordFamily:

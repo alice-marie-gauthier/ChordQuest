@@ -1,6 +1,6 @@
 import unittest
 
-from models.chords import create_prompt_pool, recognize_chord
+from models.chords import build_prompt, create_prompt_pool, family_by_id, recognize_chord
 
 
 class ChordRecognitionTests(unittest.TestCase):
@@ -35,6 +35,21 @@ class ChordRecognitionTests(unittest.TestCase):
         self.assertTrue(any(prompt["category"] == "minor" for prompt in prompts))
         self.assertTrue(any(prompt["category"] == "inversions" for prompt in prompts))
         self.assertTrue(any(prompt["inversion"] == 2 for prompt in prompts))
+
+    def test_prompt_pool_includes_sharps_and_flats(self):
+        roots = {prompt["root"] for prompt in create_prompt_pool(["major"])}
+
+        self.assertIn("C#", roots)
+        self.assertIn("Db", roots)
+        self.assertIn("F#", roots)
+        self.assertIn("Gb", roots)
+
+    def test_builds_flat_root_prompt(self):
+        prompt = build_prompt("Bb", family_by_id("minor"))
+
+        self.assertEqual(prompt["symbol"], "Bbm")
+        self.assertEqual(prompt["root"], "Bb")
+        self.assertCountEqual([note % 12 for note in prompt["midi_notes"]], [10, 1, 5])
 
 
 if __name__ == "__main__":

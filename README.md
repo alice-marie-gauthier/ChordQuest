@@ -5,16 +5,17 @@ Adaptive piano chord runner game scripted in Python with a browser UI.
 ## Features
 
 - Select one or more chord categories: Major, Minor, 7th Chords, Suspensions, Inversions, Extensions.
+- Practice chords rooted on natural notes, sharps, and flats.
 - Play with a USB MIDI keyboard through the browser Web MIDI API.
 - Play piano sounds with a QWERTZ computer keyboard using `A W S E D F T G Z H U J K`.
 - Choose one input mode at a time: USB MIDI or computer keyboard.
 - Choose a recognition mode: held chord or arpeggio.
 - Choose the runner speed with a slider before or during the game.
 - Runner game: the arriving chord is the obstacle, and the boy jumps when the requested chord is correct.
-- Interactive frontend with target-note highlighting and playable on-screen piano keys.
+- Interactive frontend with playable on-screen piano keys.
 - Score points for correct chords without a life limit.
-- Play an "error" sound when the played chord is wrong.
-- Play a short "ouch" sound when the runner hits the arriving chord.
+- Say "error" when the played chord is wrong.
+- Say "game over" when the runner hits the arriving chord.
 - Stop the game at any time with the stop button.
 - Python backend in `app.py` serves prompts and recognizes chords from MIDI-style note numbers.
 - Unit tests for chord recognition.
