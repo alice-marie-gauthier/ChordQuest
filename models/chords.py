@@ -130,6 +130,22 @@ def family_by_id(family_id: str) -> ChordFamily:
     return next(family for family in CHORD_FAMILIES if family.id == family_id)
 
 
+def root_candidates(midi_notes: list[int], notes: list[int]) -> list[int]:
+    candidates: list[int] = []
+
+    if midi_notes:
+        played_root = normalize_midi_note(midi_notes[0])
+        if played_root in notes:
+            candidates.append(played_root)
+
+        bass_note = normalize_midi_note(min(midi_notes))
+        if bass_note in notes and bass_note not in candidates:
+            candidates.append(bass_note)
+
+    candidates.extend(note for note in notes if note not in candidates)
+    return candidates
+
+
 def detect_inversion(midi_notes: list[int], root: int, chord_notes: list[int]) -> int:
     if not midi_notes:
         return 0
@@ -154,8 +170,9 @@ def recognize_chord(midi_notes: list[int]) -> RecognizedChord | None:
     if len(notes) < 3:
         return None
 
-    # First try exact interval set matches using each played pitch-class as root.
-    for root in notes:
+    # First try exact interval set matches, prioritizing the played root
+    # so ambiguous sets such as D-E-A can resolve as Dsus2 or Asus4.
+    for root in root_candidates(midi_notes, notes):
         intervals = sorted((note - root) % 12 for note in notes)
         family = next(
             (candidate for candidate in CHORD_FAMILIES if compact_intervals(candidate.intervals) == intervals),
@@ -179,7 +196,7 @@ def recognize_chord(midi_notes: list[int]) -> RecognizedChord | None:
     # where an extension is present (extra pitch-classes) or the root tone
     # is omitted from the played notes. Try all possible roots and accept
     # a family when its compact intervals are a subset of the detected intervals.
-    for root in range(12):
+    for root in root_candidates(midi_notes, notes) + [root for root in range(12) if root not in notes]:
         intervals_set = {((note - root) % 12) for note in notes}
         family = next(
             (

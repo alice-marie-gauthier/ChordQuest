@@ -29,6 +29,10 @@ class ChordRecognitionTests(unittest.TestCase):
         self.assertEqual(recognize_chord([60, 62, 67])["symbol"], "Csus2")
         self.assertEqual(recognize_chord([60, 65, 67])["symbol"], "Csus4")
 
+    def test_uses_played_root_for_ambiguous_suspended_chords(self):
+        self.assertEqual(recognize_chord([62, 64, 69])["symbol"], "Dsus2")
+        self.assertEqual(recognize_chord([69, 62, 64])["symbol"], "Asus4")
+
     def test_creates_prompt_pool_for_selected_categories(self):
         prompts = create_prompt_pool(["minor", "inversions"])
 

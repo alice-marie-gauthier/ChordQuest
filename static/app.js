@@ -24,6 +24,7 @@ const categoryList = [
 ];
 
 const activeNotes = new Set();
+const activeNoteOrder = [];
 const arpeggioNotes = new Map();
 const categoriesEl = document.querySelector("#categories");
 const recognitionModeEl = document.querySelector("#recognitionMode");
@@ -231,18 +232,19 @@ async function recognize(notes) {
 }
 
 function renderNotes() {
-  const notes =
+  const recognitionNotes =
     recognitionMode() === "arpeggio"
-      ? [...arpeggioNotes.keys()].sort((a, b) => a - b)
-      : [...activeNotes].sort((a, b) => a - b);
-  notesEl.textContent = `Notes: ${notesText(notes)}`;
+      ? [...arpeggioNotes.keys()]
+      : activeNoteOrder.filter((note) => activeNotes.has(note));
+  const displayNotes = [...recognitionNotes].sort((a, b) => a - b);
+  notesEl.textContent = `Notes: ${notesText(displayNotes)}`;
 
   document.querySelectorAll("[data-note]").forEach((button) => {
     const note = Number(button.dataset.note);
     button.classList.toggle("active", activeNotes.has(note));
   });
 
-  if (notes.length < 3) {
+  if (recognitionNotes.length < 3) {
     chordEl.textContent = "Listening";
     detectedChord = null;
     if (recognitionTimer) {
@@ -258,9 +260,10 @@ function renderNotes() {
   if (recognitionTimer) {
     clearTimeout(recognitionTimer);
   }
+  const notesToRecognize = [...recognitionNotes];
   recognitionTimer = setTimeout(() => {
     recognitionTimer = null;
-    recognize(notes);
+    recognize(notesToRecognize);
   }, 50);
 }
 
@@ -481,6 +484,9 @@ function playWrongChordSound() {
 
 function noteOn(note, playSound = false) {
   activeNotes.add(note);
+  if (!activeNoteOrder.includes(note)) {
+    activeNoteOrder.push(note);
+  }
   if (recognitionMode() === "arpeggio") {
     pruneArpeggioNotes();
     arpeggioNotes.set(note, performance.now());
@@ -494,12 +500,17 @@ function noteOn(note, playSound = false) {
 
 function noteOff(note) {
   activeNotes.delete(note);
+  const orderIndex = activeNoteOrder.indexOf(note);
+  if (orderIndex !== -1) {
+    activeNoteOrder.splice(orderIndex, 1);
+  }
   stopKeyboardTone(note);
   renderNotes();
 }
 
 function clearActiveNotes() {
   activeNotes.clear();
+  activeNoteOrder.length = 0;
   arpeggioNotes.clear();
   if (arpeggioResetTimer) {
     window.clearTimeout(arpeggioResetTimer);
