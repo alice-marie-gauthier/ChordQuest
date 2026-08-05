@@ -216,3 +216,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ChordQuest: local Chord League leaderboard data (player names + scores),
+# regenerated at runtime — never committed.
+/data/

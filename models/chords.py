@@ -109,44 +109,125 @@ LEARNING_MODULES = [
     }
 ]
 
+KNOWN_MODULE_IDS = frozenset(module["id"] for module in LEARNING_MODULES)
+
 
 def normalize_midi_note(midi_note: int) -> int:
+    """Reduce a MIDI note number to its pitch class, discarding octave.
+
+    Args:
+        midi_note: A MIDI note number (any octave, e.g. 60 for middle C).
+
+    Returns:
+        The pitch class in 0-11, where 0 is C.
+    """
     return midi_note % 12
 
 
 def unique_pitch_classes(midi_notes: list[int]) -> list[int]:
+    """Collapse a list of MIDI notes to their distinct, sorted pitch classes.
+
+    Args:
+        midi_notes: MIDI note numbers, possibly across multiple octaves and
+            with duplicates.
+
+    Returns:
+        The distinct pitch classes (0-11) present, sorted ascending.
+    """
     return sorted({normalize_midi_note(note) for note in midi_notes})
 
 
 def compact_intervals(intervals: tuple[int, ...]) -> list[int]:
+    """Reduce a chord's interval formula to its distinct, sorted pitch classes.
+
+    Args:
+        intervals: Semitone offsets from the root, e.g. (0, 4, 7) for major;
+            offsets may exceed an octave (e.g. 14 for a 9th).
+
+    Returns:
+        The distinct intervals modulo 12, sorted ascending.
+    """
     return sorted({interval % 12 for interval in intervals})
 
 
 def pitch_class(note_name: str) -> int:
+    """Look up the pitch class for a note name.
+
+    Args:
+        note_name: A note name understood by NOTE_ALIASES, e.g. "C", "F#",
+            "Bb".
+
+    Returns:
+        The pitch class in 0-11.
+    """
     return NOTE_ALIASES[note_name]
 
 
 def family_by_id(family_id: str) -> ChordFamily:
+    """Look up a chord family by its id.
+
+    Args:
+        family_id: One of the ChordFamily.id values in CHORD_FAMILIES, e.g.
+            "major", "minor7".
+
+    Returns:
+        The matching ChordFamily.
+
+    Raises:
+        StopIteration: If no family with that id exists.
+    """
     return next(family for family in CHORD_FAMILIES if family.id == family_id)
 
 
-def root_candidates(midi_notes: list[int], notes: list[int]) -> list[int]:
+def root_candidates(midi_notes: list[int], notes: list[int], mode: str = "held") -> list[int]:
+    """Order pitch classes by how likely each is to be the chord root.
+
+    In "held" (plaque/block) mode every note is meant to sound at the same
+    instant, so the order in which MIDI note-on messages happen to arrive is
+    hardware-dependent noise, not musical intent; the lowest sounding note
+    (the bass) is the reliable signal for a root-position chord. In
+    "arpeggio" mode the notes are played one after another and the first
+    note played is the meaningful signal, so play order is tried first
+    there instead.
+
+    Args:
+        midi_notes: The raw MIDI notes played, in the order they arrived.
+        notes: The chord's distinct pitch classes (0-11).
+        mode: "held" or "arpeggio"; anything else is treated as "held".
+
+    Returns:
+        `notes` reordered so the most likely root(s) come first.
+    """
     candidates: list[int] = []
 
     if midi_notes:
         played_root = normalize_midi_note(midi_notes[0])
-        if played_root in notes:
-            candidates.append(played_root)
-
         bass_note = normalize_midi_note(min(midi_notes))
-        if bass_note in notes and bass_note not in candidates:
-            candidates.append(bass_note)
+        ordered_hints = (played_root, bass_note) if mode == "arpeggio" else (bass_note, played_root)
+
+        for hint in ordered_hints:
+            if hint in notes and hint not in candidates:
+                candidates.append(hint)
 
     candidates.extend(note for note in notes if note not in candidates)
     return candidates
 
 
 def detect_inversion(midi_notes: list[int], root: int, chord_notes: list[int]) -> int:
+    """Determine which chord tone is in the bass, as an inversion index.
+
+    Args:
+        midi_notes: The raw MIDI notes played, in any order/octave.
+        root: Pitch class (0-11) of the chord's root.
+        chord_notes: The chord's distinct pitch classes (0-11), including
+            the root.
+
+    Returns:
+        0 for root position, 1 for first inversion (the bass is the second
+        chord tone above the root), 2 for second inversion, and so on. 0 is
+        also returned when the bass note isn't a recognized tone of this
+        chord or no notes were played.
+    """
     if not midi_notes:
         return 0
 
@@ -164,15 +245,35 @@ def detect_inversion(midi_notes: list[int], root: int, chord_notes: list[int]) -
     return index if 0 < index < len(ordered) else 0
 
 
-def recognize_chord(midi_notes: list[int]) -> RecognizedChord | None:
+def recognize_chord(midi_notes: list[int], mode: str = "held") -> RecognizedChord | None:
+    """Identify the chord formed by a set of played MIDI notes.
+
+    Tries an exact match against the known chord families first (root
+    priority depends on `mode`, see root_candidates), then falls back to a
+    tolerant match that accepts a family whose intervals are a subset of
+    what was played (so extra/omitted notes still resolve to a chord).
+
+    Args:
+        midi_notes: The raw MIDI notes played, in any order/octave.
+        mode: "held" for a block/plaque chord (root decided by the bass
+            note) or "arpeggio" for notes played one at a time (root
+            decided by the first note played).
+
+    Returns:
+        A RecognizedChord with root, family_id, quality, symbol, notes and
+        inversion, or None if fewer than 3 distinct pitch classes were
+        played or no chord family matches.
+    """
     notes = unique_pitch_classes(midi_notes)
 
     if len(notes) < 3:
         return None
 
-    # First try exact interval set matches, prioritizing the played root
-    # so ambiguous sets such as D-E-A can resolve as Dsus2 or Asus4.
-    for root in root_candidates(midi_notes, notes):
+    # First try exact interval set matches. Root priority is mode-aware so
+    # ambiguous sets such as D-E-A resolve consistently: by bass note for a
+    # held/plaque chord (Dsus2), or by the first note played for an
+    # arpeggio (Dsus2 or Asus4 depending on which note started it).
+    for root in root_candidates(midi_notes, notes, mode):
         intervals = sorted((note - root) % 12 for note in notes)
         family = next(
             (candidate for candidate in CHORD_FAMILIES if compact_intervals(candidate.intervals) == intervals),
@@ -196,7 +297,7 @@ def recognize_chord(midi_notes: list[int]) -> RecognizedChord | None:
     # where an extension is present (extra pitch-classes) or the root tone
     # is omitted from the played notes. Try all possible roots and accept
     # a family when its compact intervals are a subset of the detected intervals.
-    for root in root_candidates(midi_notes, notes) + [root for root in range(12) if root not in notes]:
+    for root in root_candidates(midi_notes, notes, mode) + [root for root in range(12) if root not in notes]:
         intervals_set = {((note - root) % 12) for note in notes}
         family = next(
             (
@@ -224,6 +325,21 @@ def recognize_chord(midi_notes: list[int]) -> RecognizedChord | None:
 
 
 def build_prompt(root_name: str, family: ChordFamily, category: str | None = None, inversion: int = 0) -> ChordPrompt:
+    """Build a chord prompt (the "play this chord" target) for one root/family.
+
+    Args:
+        root_name: Root note name, e.g. "C", "F#", "Bb".
+        family: The chord family (interval formula) to build.
+        category: Category label to tag the prompt with; defaults to
+            `family.category` (used to tag inversion prompts as
+            "inversions" even though they reuse the major/minor family).
+        inversion: 0 for root position; for a 3-note family, 1 or 2 to
+            voice that many chord tones below the root, an octave up.
+
+    Returns:
+        A ChordPrompt with the root, family, symbol, notes, MIDI notes,
+        inversion and formula.
+    """
     root = pitch_class(root_name)
     pitch_classes = [(root + interval) % 12 for interval in family.intervals]
     base_midi_notes = [60 + ((pitch_class_value - 0) % 12) for pitch_class_value in pitch_classes]
@@ -246,7 +362,22 @@ def build_prompt(root_name: str, family: ChordFamily, category: str | None = Non
 
 
 def create_prompt_pool(categories: list[str]) -> list[ChordPrompt]:
-    selected = categories or ["major"]
+    """Build every possible chord prompt for the given categories.
+
+    Args:
+        categories: Category ids to include, e.g. ["major", "inversions"].
+            Unknown/typo'd ids are dropped; if none remain (or the input is
+            empty), falls back to ["major"] so a prompt can always be
+            produced.
+
+    Returns:
+        One ChordPrompt per root/family (and, for "inversions", per
+        inversion) across the selected categories.
+    """
+    # Drop unknown/typo'd category ids instead of silently returning an
+    # empty pool (which would crash random_prompt's random.choice); fall
+    # back to Major so the game can always produce a prompt.
+    selected = [category for category in categories if category in KNOWN_MODULE_IDS] or ["major"]
     prompts: list[ChordPrompt] = []
 
     for category in selected:
@@ -267,4 +398,13 @@ def create_prompt_pool(categories: list[str]) -> list[ChordPrompt]:
 
 
 def random_prompt(categories: list[str]) -> ChordPrompt:
+    """Pick one random chord prompt from the given categories.
+
+    Args:
+        categories: Category ids to choose from; see create_prompt_pool for
+            how unknown/empty input is handled.
+
+    Returns:
+        A randomly chosen ChordPrompt.
+    """
     return random.choice(create_prompt_pool(categories))

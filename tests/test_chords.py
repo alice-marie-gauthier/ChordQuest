@@ -29,9 +29,20 @@ class ChordRecognitionTests(unittest.TestCase):
         self.assertEqual(recognize_chord([60, 62, 67])["symbol"], "Csus2")
         self.assertEqual(recognize_chord([60, 65, 67])["symbol"], "Csus4")
 
-    def test_uses_played_root_for_ambiguous_suspended_chords(self):
+    def test_arpeggio_mode_uses_played_root_for_ambiguous_suspended_chords(self):
+        self.assertEqual(recognize_chord([62, 64, 69], mode="arpeggio")["symbol"], "Dsus2")
+        self.assertEqual(recognize_chord([69, 62, 64], mode="arpeggio")["symbol"], "Asus4")
+
+    def test_held_mode_uses_bass_note_regardless_of_note_arrival_order(self):
+        # Simulates a plaque/block chord: USB MIDI note-on order for
+        # simultaneously pressed keys is hardware noise, so the lowest
+        # sounding note (the bass) must decide the root either way.
         self.assertEqual(recognize_chord([62, 64, 69])["symbol"], "Dsus2")
-        self.assertEqual(recognize_chord([69, 62, 64])["symbol"], "Asus4")
+        self.assertEqual(recognize_chord([69, 62, 64])["symbol"], "Dsus2")
+        self.assertEqual(recognize_chord([64, 69, 62])["symbol"], "Dsus2")
+
+    def test_held_is_the_default_recognition_mode(self):
+        self.assertEqual(recognize_chord([69, 62, 64]), recognize_chord([69, 62, 64], mode="held"))
 
     def test_creates_prompt_pool_for_selected_categories(self):
         prompts = create_prompt_pool(["minor", "inversions"])
@@ -39,6 +50,17 @@ class ChordRecognitionTests(unittest.TestCase):
         self.assertTrue(any(prompt["category"] == "minor" for prompt in prompts))
         self.assertTrue(any(prompt["category"] == "inversions" for prompt in prompts))
         self.assertTrue(any(prompt["inversion"] == 2 for prompt in prompts))
+
+    def test_create_prompt_pool_falls_back_to_major_for_unknown_categories(self):
+        prompts = create_prompt_pool(["not-a-real-category"])
+
+        self.assertTrue(prompts)
+        self.assertTrue(all(prompt["category"] == "major" for prompt in prompts))
+
+    def test_create_prompt_pool_drops_unknown_categories_but_keeps_known_ones(self):
+        prompts = create_prompt_pool(["minor", "not-a-real-category"])
+
+        self.assertTrue(all(prompt["category"] == "minor" for prompt in prompts))
 
     def test_prompt_pool_includes_sharps_and_flats(self):
         roots = {prompt["root"] for prompt in create_prompt_pool(["major"])}

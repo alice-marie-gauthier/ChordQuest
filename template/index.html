@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ChordQuest Runner</title>
+    <link rel="stylesheet" href="/css/styles.css" />
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <p>ChordQuest Runner</p>
+        <h1>Catch the chord as it arrives.</h1>
+        <span id="status">Choose categories, select USB MIDI or computer keyboard, then start.</span>
+      </section>
+
+      <section class="player-panel" aria-label="Player">
+        <span>Player</span>
+        <div class="player-mode" id="playerMode">
+          <label>
+            <input type="radio" name="playerMode" value="solo" checked />
+            <span class="option-icon" aria-hidden="true">
+              <svg viewBox="0 0 48 48" width="26" height="26">
+                <circle cx="24" cy="15" r="8" fill="none" stroke="currentColor" stroke-width="3" />
+                <path d="M9 40 Q9 25 24 25 Q39 25 39 40" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" />
+              </svg>
+            </span>
+            <span class="option-text"><strong>Practice solo</strong><small>Local session, off the leaderboard</small></span>
+          </label>
+          <label>
+            <input type="radio" name="playerMode" value="league" />
+            <span class="option-icon" aria-hidden="true">
+              <svg viewBox="0 0 48 48" width="26" height="26">
+                <rect x="4" y="26" width="12" height="16" rx="2" fill="currentColor" opacity="0.55" />
+                <rect x="18" y="12" width="12" height="30" rx="2" fill="currentColor" />
+                <rect x="32" y="30" width="12" height="12" rx="2" fill="currentColor" opacity="0.55" />
+              </svg>
+            </span>
+            <span class="option-text"><strong>Join the Chord League</strong><small>Ranked, with your own avatar</small></span>
+          </label>
+        </div>
+        <div class="player-join" id="playerJoin" hidden>
+          <div class="avatar-builder" id="avatarBuilder">
+            <div class="avatar-preview" id="avatarPreview" aria-hidden="true"></div>
+            <div class="avatar-traits">
+              <div class="avatar-trait-row">
+                <span>Skin</span>
+                <div class="swatch-row" id="avatarSkinRow"></div>
+              </div>
+              <div class="avatar-trait-row">
+                <span>Hair</span>
+                <div class="swatch-row" id="avatarHairStyleRow"></div>
+              </div>
+              <div class="avatar-trait-row">
+                <span>Hair color</span>
+                <div class="swatch-row" id="avatarHairColorRow"></div>
+              </div>
+              <div class="avatar-trait-row">
+                <span>Accessory</span>
+                <div class="swatch-row" id="avatarAccessoryRow"></div>
+              </div>
+              <div class="avatar-trait-row">
+                <span>Outfit</span>
+                <div class="swatch-row" id="avatarOutfitRow"></div>
+              </div>
+              <div class="avatar-trait-row">
+                <span>Background</span>
+                <div class="swatch-row" id="avatarBackgroundRow"></div>
+              </div>
+            </div>
+          </div>
+          <div class="player-join-form">
+            <input id="playerNameInput" type="text" maxlength="24" placeholder="Your name" autocomplete="off" />
+            <button id="joinLeagueButton" type="button">Join</button>
+          </div>
+          <small id="playerStatus">Practice mode: scores stay local and off the leaderboard.</small>
+        </div>
+      </section>
+
+      <section class="setup" aria-label="Game parameters">
+        <div>
+          <span>Chord categories</span>
+          <div class="category-grid" id="categories"></div>
+          <div class="recognition-mode" id="recognitionMode">
+            <span>Recognition mode</span>
+            <label>
+              <input type="radio" name="recognitionMode" value="held" checked />
+              <span class="option-text"><strong>Held chord</strong><small>Hold all the notes down together</small></span>
+            </label>
+            <label>
+              <input type="radio" name="recognitionMode" value="arpeggio" />
+              <span class="option-text"><strong>Arpeggio</strong><small>Play the notes one after another</small></span>
+            </label>
+          </div>
+        </div>
+        <div class="controls">
+          <span>Input device</span>
+          <div class="input-mode-grid">
+            <button class="input-mode-card" id="midiButton" type="button">
+              <span class="input-mode-icon" aria-hidden="true">
+                <svg viewBox="0 0 48 48" width="30" height="30">
+                  <path d="M6 24 H17" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" />
+                  <rect x="17" y="15" width="15" height="18" rx="3" fill="currentColor" />
+                  <rect x="22" y="9" width="3" height="7" fill="currentColor" />
+                  <rect x="28" y="9" width="3" height="7" fill="currentColor" />
+                  <circle cx="39" cy="24" r="7" fill="none" stroke="currentColor" stroke-width="3" />
+                </svg>
+              </span>
+              <strong id="midiButtonLabel">USB MIDI</strong>
+              <small>Plug in your piano keyboard</small>
+            </button>
+            <button class="input-mode-card" id="keyboardButton" type="button">
+              <span class="input-mode-icon" aria-hidden="true">
+                <svg viewBox="0 0 48 48" width="30" height="30">
+                  <rect x="5" y="15" width="38" height="20" rx="4" fill="none" stroke="currentColor" stroke-width="3" />
+                  <rect x="11" y="21" width="4" height="4" fill="currentColor" />
+                  <rect x="18" y="21" width="4" height="4" fill="currentColor" />
+                  <rect x="25" y="21" width="4" height="4" fill="currentColor" />
+                  <rect x="32" y="21" width="4" height="4" fill="currentColor" />
+                  <rect x="11" y="27" width="26" height="4" fill="currentColor" />
+                </svg>
+              </span>
+              <strong>Computer keyboard</strong>
+              <small>Play with A W S E D F T G Z H U J K</small>
+            </button>
+          </div>
+          <small id="inputStatus">Input: choose USB MIDI or QWERTZ keyboard</small>
+          <label class="speed-control">
+            <span>Speed <strong id="speedValue">2.8</strong></span>
+            <input id="speedSlider" type="range" min="0.5" max="7" step="0.1" value="2.8" />
+          </label>
+        </div>
+      </section>
+
+      <section class="control-bar" aria-label="Game controls">
+        <button id="startButton" type="button" class="control-button control-start">
+          <span class="control-icon" aria-hidden="true">▶</span> Start game
+        </button>
+        <button id="pauseButton" type="button" class="control-button control-pause" disabled>
+          <span class="control-icon" aria-hidden="true">❚❚</span> Pause
+        </button>
+        <button id="stopButton" type="button" class="control-button control-stop">
+          <span class="control-icon" aria-hidden="true">■</span> Stop game
+        </button>
+      </section>
+
+      <section class="game-hud">
+        <div>
+          <span>Target chord</span>
+          <strong id="target">Select and start</strong>
+          <small id="formula"></small>
+        </div>
+        <div>
+          <span>Detected</span>
+          <strong id="chord">Listening</strong>
+          <small id="notes">Notes: none</small>
+        </div>
+        <div>
+          <span>Score</span>
+          <strong id="score">0 pts</strong>
+          <small id="meta">Speed 2.8</small>
+        </div>
+      </section>
+
+      <section class="target-panel" aria-label="Interactive chord target">
+        <div>
+          <span>Arriving chord</span>
+          <strong id="arrivalChord">Waiting</strong>
+        </div>
+        <div class="arrival-track" aria-hidden="true">
+          <div id="arrivalMeter"></div>
+        </div>
+      </section>
+
+      <canvas id="game" width="980" height="320" aria-label="Runner game"></canvas>
+
+      <p class="keyboard-guide">QWERTZ keyboard: A W S E D F T G Z H U J K</p>
+      <section class="keys" id="keys"></section>
+
+      <section class="mastery-panel" aria-label="Chord mastery">
+        <div class="mastery-panel-header">
+          <span>Mastery by chord type</span>
+          <button id="resetStatsButton" type="button">Reset stats</button>
+        </div>
+        <div id="masteryGrid" class="mastery-grid">Play a few chords to build your mastery stats.</div>
+      </section>
+
+      <section class="mastery-panel leaderboard-panel" aria-label="Chord League leaderboard">
+        <div class="mastery-panel-header">
+          <span>Chord League leaderboard</span>
+        </div>
+        <div id="leaderboardPodium" class="leaderboard-podium"></div>
+        <div id="leaderboardGrid" class="leaderboard-grid">Join the Chord League to see rankings.</div>
+      </section>
+    </main>
+    <script type="module" src="/js/app.js"></script>
+  </body>
+</html>
