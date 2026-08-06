@@ -1,6 +1,10 @@
 import { RunnerScene } from "./game/scene.js";
 import { AVATAR_TRAITS, DEFAULT_AVATAR, renderAvatarMarkup, sanitizeAvatar } from "./avatar.js";
 
+// Mirrors models/library.py's DEFAULT_TEMPO_BPM; used whenever a custom
+// progression doesn't specify (or hasn't yet loaded) its own tempo.
+const DEFAULT_TEMPO_BPM = 90;
+
 const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const keyMap = {
   a: 60,
@@ -33,6 +37,7 @@ const activeNoteOrder = [];
 const arpeggioNotes = new Map();
 const categoriesEl = document.querySelector("#categories");
 const recognitionModeEl = document.querySelector("#recognitionMode");
+const playAreaEl = document.querySelector("#playArea");
 const notesEl = document.querySelector("#notes");
 const chordEl = document.querySelector("#chord");
 const keysEl = document.querySelector("#keys");
@@ -70,6 +75,18 @@ const avatarRows = {
   outfit: document.querySelector("#avatarOutfitRow"),
   background: document.querySelector("#avatarBackgroundRow")
 };
+const progressionFileInput = document.querySelector("#progressionFileInput");
+const progressionTitleInput = document.querySelector("#progressionTitleInput");
+const progressionTempoInput = document.querySelector("#progressionTempoInput");
+const progressionClearButton = document.querySelector("#progressionClearButton");
+const progressionStatusEl = document.querySelector("#progressionStatus");
+const progressionModeEl = document.querySelector("#progressionMode");
+const progressionConfigEl = document.querySelector("#progressionConfig");
+const randomPracticeConfigEl = document.querySelector("#randomPracticeConfig");
+const progressionSummaryEl = document.querySelector("#progressionSummary");
+const librarySourceSelect = document.querySelector("#librarySourceSelect");
+const librarySongSelect = document.querySelector("#librarySongSelect");
+const libraryLoadButton = document.querySelector("#libraryLoadButton");
 const canvas = document.querySelector("#game");
 // The runner, the arriving obstacle, particle effects and the parallax
 // ground all live in the game/ modules; this scene is the single canvas
@@ -100,6 +117,20 @@ let keyboardAudioContext = null;
 let keyboardMasterGain = null;
 let lastWrongSoundAt = 0;
 let arpeggioResetTimer = null;
+// "random" picks prompts from the selected categories; "custom" steps
+// sequentially through an uploaded chord progression instead. Starts
+// unset (neither radio pre-checked, matching #playerMode) until the
+// player actively picks one; every comparison below treats null the
+// same as "not custom", i.e. random-practice behavior.
+let progressionPracticeMode = null;
+let customProgression = [];
+let customIndex = -1;
+let customProgressionTitle = "";
+// Playback speed (beats per minute) for the loaded custom progression; each
+// prompt's own duration_beats (see models/chords.py) is converted to
+// seconds against this so a half note takes twice as long as a quarter,
+// matching the song's actual rhythm rather than a uniform obstacle speed.
+let customProgressionTempo = DEFAULT_TEMPO_BPM;
 // Display name of the joined Chord League player, or null while practicing
 // solo. Solo practice never touches the leaderboard.
 let activePlayer = null;
@@ -187,7 +218,7 @@ async function loadModules() {
     });
   } catch (error) {
     buildCategoryInputs(FALLBACK_CATEGORIES);
-    statusEl.textContent = "Could not load chord categories from the server; using defaults.";
+    statusEl.textContent = "Could not load categories; using defaults.";
   }
 }
 
@@ -197,7 +228,7 @@ categoriesEl.addEventListener("change", (event) => {
     // Keep the game always able to produce a prompt: never allow the last
     // checked category to be unchecked.
     event.target.checked = true;
-    statusEl.textContent = "Keep at least one chord category selected.";
+    statusEl.textContent = "Keep at least one category.";
   }
 });
 
@@ -322,12 +353,12 @@ async function joinLeague(name, { silent = false } = {}) {
     localStorage.setItem(PLAYER_NAME_STORAGE_KEY, player.name);
     localStorage.setItem(PLAYER_MODE_STORAGE_KEY, "league");
     localStorage.setItem(PLAYER_AVATAR_STORAGE_KEY, JSON.stringify(currentAvatar));
-    setPlayerStatus(`Playing as ${player.name} — scores count toward the Chord League.`);
+    setPlayerStatus(`Playing as ${player.name} — ranked`);
     loadStats();
     loadLeaderboard();
   } catch (error) {
     activePlayer = null;
-    setPlayerStatus("Could not join the Chord League; check the server connection.", true);
+    setPlayerStatus("Could not join; check connection.", true);
   }
 }
 
@@ -338,7 +369,7 @@ playerModeEl.addEventListener("change", () => {
 
   if (mode === "solo") {
     activePlayer = null;
-    setPlayerStatus("Practice mode: scores stay local and off the leaderboard.");
+    setPlayerStatus("Local scores only");
     loadStats();
     return;
   }
@@ -348,7 +379,7 @@ playerModeEl.addEventListener("change", () => {
   if (savedName) {
     joinLeague(savedName, { silent: true });
   } else {
-    setPlayerStatus("Enter a name and click Join to add your scores to the Chord League.");
+    setPlayerStatus("Enter a name, then Join.");
   }
 });
 
@@ -447,10 +478,25 @@ function renderTargetPrompt() {
 }
 
 /**
- * Fetch a new random chord prompt for the selected categories and render it.
+ * Advance to the next prompt: the next chord in the uploaded progression
+ * (looping back to the start when it finishes) if "Custom progression" is
+ * selected and loaded, otherwise a new random chord from the selected
+ * categories.
  * @returns {Promise<void>}
  */
 async function fetchPrompt() {
+  if (progressionPracticeMode === "custom" && customProgression.length) {
+    const wasLast = customIndex === customProgression.length - 1;
+    customIndex = (customIndex + 1) % customProgression.length;
+    if (wasLast) {
+      statusEl.textContent = "Song complete! Looping back.";
+    }
+    targetPrompt = customProgression[customIndex];
+    promptShownAt = performance.now();
+    renderTargetPrompt();
+    return;
+  }
+
   const categories = selectedCategories();
   const query = encodeURIComponent(categories.length ? categories.join(",") : "major");
   const response = await fetch(`/api/prompt?categories=${query}`);
@@ -458,6 +504,201 @@ async function fetchPrompt() {
   targetPrompt = data.prompt;
   promptShownAt = performance.now();
   renderTargetPrompt();
+}
+
+/**
+ * Read a raw CSV file's text into a flat list of candidate chord tokens:
+ * one per non-empty line, taking only the first comma-separated column
+ * and stripping surrounding quotes/whitespace. Not a full CSV parser —
+ * deliberately simple since the expected format is a single "chord" column.
+ * @param {string} text - Raw file contents.
+ * @returns {string[]} Non-empty candidate chord tokens, in file order.
+ */
+function parseCsvChordLines(text) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.split(",")[0].replace(/^["']|["']$/g, "").trim())
+    .filter(Boolean);
+}
+
+/** Reset the progression panel to its empty state (no song loaded, random practice). */
+function clearProgression() {
+  customProgression = [];
+  customIndex = -1;
+  customProgressionTitle = "";
+  customProgressionTempo = DEFAULT_TEMPO_BPM;
+  progressionPracticeMode = "random";
+  progressionFileInput.value = "";
+  progressionTitleInput.value = "";
+  progressionTempoInput.value = "";
+  progressionClearButton.hidden = true;
+  const randomRadio = progressionModeEl.querySelector('input[value="random"]');
+  if (randomRadio) {
+    randomRadio.checked = true;
+  }
+  // The mode toggle (Random/Custom) stays visible; only the upload/library
+  // config collapses back, and Chord categories/Recognition mode reappear,
+  // matching the default "Random practice" state.
+  progressionConfigEl.hidden = true;
+  randomPracticeConfigEl.hidden = false;
+  progressionStatusEl.textContent = "";
+  progressionStatusEl.classList.remove("is-error");
+}
+
+/**
+ * Adopt a parsed chord list as the active custom progression: resets
+ * playback to the first chord and updates the practice-mode summary.
+ * Reaching this function already implies "Custom progression" is selected
+ * (the upload/library controls that call it only show once that radio is
+ * checked), so the config panel doesn't need to be revealed here.
+ * @param {object[]} prompts - Parsed ChordPrompt objects, in playing order.
+ * @param {string} [title] - Display title, shown in the practice-mode summary.
+ * @param {number} [tempoBpm] - Playback speed for these prompts' own
+ *   duration_beats; falls back to DEFAULT_TEMPO_BPM if omitted/invalid.
+ */
+function setCustomProgression(prompts, title = "", tempoBpm) {
+  customProgression = prompts;
+  customIndex = -1;
+  customProgressionTitle = title;
+  customProgressionTempo = Number.isFinite(tempoBpm) && tempoBpm > 0 ? tempoBpm : DEFAULT_TEMPO_BPM;
+  progressionTempoInput.value = customProgressionTempo;
+  progressionClearButton.hidden = false;
+  const label = title ? `"${title}" — ` : "";
+  progressionSummaryEl.textContent = `${label}${prompts.length} chord${prompts.length === 1 ? "" : "s"} loaded`;
+}
+
+/**
+ * Handle a newly chosen progression CSV file: read it, send the candidate
+ * chord tokens (plus an optional title) to the backend for validation,
+ * and reveal the practice-mode toggle on success. A title also
+ * auto-saves the progression to the "Uploaded Songs" library.
+ * @returns {Promise<void>}
+ */
+async function handleProgressionFile() {
+  const file = progressionFileInput.files?.[0];
+  if (!file) {
+    return;
+  }
+
+  progressionStatusEl.textContent = "Reading file…";
+  progressionStatusEl.classList.remove("is-error");
+
+  try {
+    const text = await file.text();
+    const lines = parseCsvChordLines(text);
+    // Drop a header row like "chord" (matching the downloadable template)
+    // if present, so users don't have to remember to remove it.
+    const chords = lines[0]?.toLowerCase() === "chord" ? lines.slice(1) : lines;
+
+    if (!chords.length) {
+      throw new Error("empty");
+    }
+
+    const title = progressionTitleInput.value.trim() || file.name.replace(/\.csv$/i, "");
+    const tempoInputValue = progressionTempoInput.value.trim();
+    const tempoBpm = tempoInputValue ? Number(tempoInputValue) : undefined;
+    const response = await fetch("/api/progressions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chords, title, tempo_bpm: tempoBpm })
+    });
+    if (!response.ok) {
+      throw new Error(`status ${response.status}`);
+    }
+
+    const data = await response.json();
+    if (!data.prompts.length) {
+      progressionStatusEl.textContent = "No valid chords found. Check the template.";
+      progressionStatusEl.classList.add("is-error");
+      return;
+    }
+
+    setCustomProgression(data.prompts, title, data.saved?.tempo_bpm ?? tempoBpm);
+
+    const skipped = data.errors.length
+      ? ` (${data.errors.length} row${data.errors.length === 1 ? "" : "s"} skipped: ${data.errors
+          .map((entry) => `"${entry.chord}"`)
+          .join(", ")})`
+      : "";
+    const savedNote = data.saved ? ` Saved to "Uploaded Songs".` : "";
+    progressionStatusEl.textContent = `Loaded "${title}": ${data.prompts.length} chords.${skipped}${savedNote}`;
+    progressionStatusEl.classList.toggle("is-error", data.errors.length > 0);
+
+    if (data.saved && librarySourceSelect.value === "uploaded") {
+      loadLibrarySongOptions();
+    }
+  } catch (error) {
+    progressionStatusEl.textContent = "Could not read that CSV.";
+    progressionStatusEl.classList.add("is-error");
+  }
+}
+
+/**
+ * Populate the song picker for the currently selected library source.
+ * @returns {Promise<void>}
+ */
+async function loadLibrarySongOptions() {
+  const source = librarySourceSelect.value;
+  librarySongSelect.innerHTML = '<option value="">Loading…</option>';
+
+  try {
+    const response = await fetch(`/api/library/${source}`);
+    if (!response.ok) {
+      throw new Error(`status ${response.status}`);
+    }
+    const songs = await response.json();
+
+    librarySongSelect.innerHTML = "";
+    if (!songs.length) {
+      librarySongSelect.innerHTML = '<option value="">No songs yet</option>';
+      return;
+    }
+
+    songs.forEach((song) => {
+      const option = document.createElement("option");
+      option.value = song.id;
+      const artist = song.artist ? ` — ${song.artist}` : "";
+      option.textContent = `${song.title}${artist} (${song.chord_count} chords)`;
+      librarySongSelect.appendChild(option);
+    });
+  } catch (error) {
+    librarySongSelect.innerHTML = '<option value="">Could not load library</option>';
+  }
+}
+
+/**
+ * Fetch the currently selected library song and adopt it as the active
+ * custom progression.
+ * @returns {Promise<void>}
+ */
+async function loadSelectedLibrarySong() {
+  const source = librarySourceSelect.value;
+  const songId = librarySongSelect.value;
+  if (!songId) {
+    progressionStatusEl.textContent = "Pick a song first.";
+    progressionStatusEl.classList.add("is-error");
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/library/${source}/${encodeURIComponent(songId)}`);
+    if (!response.ok) {
+      throw new Error(`status ${response.status}`);
+    }
+    const song = await response.json();
+    if (!song.prompts.length) {
+      progressionStatusEl.textContent = `"${song.title}" has no valid chords to play.`;
+      progressionStatusEl.classList.add("is-error");
+      return;
+    }
+
+    setCustomProgression(song.prompts, song.title, song.tempo_bpm);
+    progressionStatusEl.textContent = `Loaded "${song.title}" from ${source === "curated" ? "My Library" : "Uploaded Songs"}: ${song.prompts.length} chords.`;
+    progressionStatusEl.classList.remove("is-error");
+  } catch (error) {
+    progressionStatusEl.textContent = "Could not load song; check connection.";
+    progressionStatusEl.classList.add("is-error");
+  }
 }
 
 /**
@@ -589,7 +830,7 @@ function createKeyboardAudio() {
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
 
   if (!AudioContextClass) {
-    statusEl.textContent = "Browser audio is not supported here.";
+    statusEl.textContent = "Audio not supported.";
     return null;
   }
 
@@ -918,7 +1159,7 @@ function renderMastery(stats) {
   }
 
   if (!stats.length) {
-    masteryGridEl.textContent = "Play a few chords to build your mastery stats.";
+    masteryGridEl.textContent = "No stats yet";
     return;
   }
 
@@ -1036,10 +1277,16 @@ function renderPodium(topThree) {
   });
 }
 
+/**
+ * Render the ranked list below the podium (ranks 4+).
+ * @param {object[]} rest - Leaderboard entries after the top 3.
+ * @param {number} startingRank - Rank number of the first entry in `rest`
+ *   (i.e. 4, since the podium covers 1-3).
+ */
 function renderLeaderboardList(rest, startingRank) {
   if (!rest.length) {
     if (startingRank === 1) {
-      leaderboardGridEl.textContent = "No Chord League scores yet — be the first to join!";
+      leaderboardGridEl.textContent = "No rankings yet";
     } else {
       leaderboardGridEl.innerHTML = "";
     }
@@ -1080,6 +1327,11 @@ function renderLeaderboardList(rest, startingRank) {
   });
 }
 
+/**
+ * Render the full Chord League leaderboard: podium for the top 3, list for the rest.
+ * @param {object[]} entries - Leaderboard entries from /api/leaderboard,
+ *   already ranked.
+ */
 function renderLeaderboard(entries) {
   if (!leaderboardGridEl || !Array.isArray(entries)) {
     return;
@@ -1089,6 +1341,10 @@ function renderLeaderboard(entries) {
   renderLeaderboardList(entries.slice(3), 4);
 }
 
+/**
+ * Fetch and render the current Chord League leaderboard.
+ * @returns {Promise<void>}
+ */
 async function loadLeaderboard() {
   try {
     const response = await fetch("/api/leaderboard");
@@ -1100,11 +1356,16 @@ async function loadLeaderboard() {
   }
 }
 
+/**
+ * Handle a correctly played chord: award points, play the jump/particle
+ * celebration, report the attempt, then advance to the next prompt after
+ * a short delay.
+ */
 function correctAnswer() {
   resolving = true;
   const pointsEarned = Math.round(100 * speed);
   score += pointsEarned;
-  statusEl.textContent = "Correct chord. Clean jump!";
+  statusEl.textContent = "Correct! Clean jump.";
   updateHud();
   recordAttempt(true, pointsEarned);
   scene.playCorrectAnswer();
@@ -1117,6 +1378,13 @@ function correctAnswer() {
   }, 650);
 }
 
+/**
+ * Handle the obstacle reaching the runner (called via the scene's onMiss
+ * hook): play the game-over cue, report the attempt, then advance to the
+ * next prompt after a short delay. A no-op if already resolving, paused,
+ * or the game isn't running (defense in depth; the scene shouldn't call
+ * this in those states).
+ */
 function missChord() {
   if (resolving || !gameRunning || paused) {
     return;
@@ -1127,7 +1395,7 @@ function missChord() {
   // status text and getting the next prompt.
   resolving = true;
   playGameOverSound();
-  statusEl.textContent = "Missed chord. Try the next one.";
+  statusEl.textContent = "Missed. Try again.";
   updateHud();
   recordAttempt(false);
 
@@ -1138,17 +1406,23 @@ function missChord() {
   }, 700);
 }
 
+/** Refresh the score/speed HUD text from current state. */
 function updateHud() {
   scoreEl.textContent = `${score} pts`;
   metaEl.textContent = `Speed ${speed.toFixed(1)}`;
   speedValueEl.textContent = speed.toFixed(1);
 }
 
+/** Read the speed slider into `speed` and refresh the HUD. */
 function updateSpeedFromSlider() {
   speed = Number(speedSlider.value);
   updateHud();
 }
 
+/**
+ * Update the Pause button's icon/label/style to reflect the current state.
+ * @param {boolean} isPaused - Whether the game is currently paused.
+ */
 function setPauseButtonState(isPaused) {
   pauseButton.innerHTML = isPaused
     ? '<span class="control-icon" aria-hidden="true">▶</span> Resume'
@@ -1156,6 +1430,10 @@ function setPauseButtonState(isPaused) {
   pauseButton.classList.toggle("is-paused", isPaused);
 }
 
+/**
+ * Toggle the paused state; a no-op if no game is currently running.
+ * While paused, the scene freezes and no chord is scored right or wrong.
+ */
 function togglePause() {
   if (!gameRunning) {
     return;
@@ -1163,18 +1441,21 @@ function togglePause() {
 
   paused = !paused;
   setPauseButtonState(paused);
-  statusEl.textContent = paused
-    ? "Paused. Click Resume when you're ready to keep playing."
-    : "Resumed. Play the displayed chord before the obstacle arrives.";
+  statusEl.textContent = paused ? "Paused." : "Resumed.";
 }
 
+/**
+ * Start a new run: validates an input device is ready, resets
+ * score/pause state, starts the scene, and fetches the first prompt.
+ * @returns {Promise<void>}
+ */
 async function startGame() {
   if (!inputMode) {
-    statusEl.textContent = "Choose USB MIDI or computer keyboard before starting.";
+    statusEl.textContent = "Choose an input first.";
     return;
   }
   if (inputMode === "midi" && !midiReady) {
-    statusEl.textContent = "USB MIDI is selected, but no MIDI input is detected yet.";
+    statusEl.textContent = "No MIDI input detected.";
     return;
   }
 
@@ -1186,12 +1467,16 @@ async function startGame() {
   setPauseButtonState(false);
   pauseButton.disabled = false;
   gameRunning = true;
+  // Always start a custom progression from its first chord, even if a
+  // previous run was stopped partway through.
+  customIndex = -1;
   scene.start();
-  statusEl.textContent = "Run started. Play the displayed chord before the obstacle arrives.";
+  statusEl.textContent = "Run started!";
   updateHud();
   await fetchPrompt();
 }
 
+/** End the current run: resets game/pause state, clears held notes, and stops the scene. */
 function stopGame() {
   gameRunning = false;
   resolving = false;
@@ -1200,20 +1485,38 @@ function stopGame() {
   pauseButton.disabled = true;
   clearActiveNotes();
   scene.stop();
-  statusEl.textContent = "Game stopped. Start again when ready.";
+  statusEl.textContent = "Game stopped.";
   updateHud();
 }
 
+/**
+ * Switch the active input device and update the two input-mode cards'
+ * selected styling to match. Also reveals the game/HUD/keys/mastery/
+ * leaderboard area below, which stays hidden with no placeholder text
+ * until this — the last un-set parameter — happens.
+ * @param {"midi"|"keyboard"} mode - The input mode to switch to.
+ */
 function setInputMode(mode) {
   inputMode = mode;
   midiButton.classList.toggle("selected", mode === "midi");
   keyboardButton.classList.toggle("selected", mode === "keyboard");
+  playAreaEl.hidden = false;
 }
 
+/**
+ * Get a human-readable name for a Web MIDI input device.
+ * @param {MIDIInput} input - A Web MIDI API input device.
+ * @returns {string} The device's name, manufacturer, or a generic fallback.
+ */
 function midiInputName(input) {
   return input.name || input.manufacturer || "USB MIDI device";
 }
 
+/**
+ * Handle a raw Web MIDI message: translate note-on/note-off events into
+ * noteOn()/noteOff() calls. Ignored unless USB MIDI is the active input mode.
+ * @param {MIDIMessageEvent} event - The incoming MIDI message.
+ */
 function handleMidiMessage(event) {
   if (inputMode !== "midi") {
     return;
@@ -1231,6 +1534,11 @@ function handleMidiMessage(event) {
   }
 }
 
+/**
+ * Wire handleMidiMessage onto every currently connected MIDI input.
+ * @returns {MIDIInput[]} The connected inputs (empty if MIDI access hasn't
+ *   been granted yet).
+ */
 function connectMidiInputs() {
   if (!midiAccess) {
     return [];
@@ -1244,6 +1552,12 @@ function connectMidiInputs() {
   return inputs;
 }
 
+/**
+ * Re-check connected MIDI inputs and refresh the USB MIDI status text/
+ * button label accordingly. Called after granting access and on every
+ * subsequent MIDI connection change. A no-op unless USB MIDI is the
+ * active input mode.
+ */
 function updateMidiStatus() {
   if (inputMode !== "midi") {
     return;
@@ -1253,9 +1567,8 @@ function updateMidiStatus() {
 
   if (!inputs.length) {
     midiReady = false;
-    inputStatusEl.textContent = "USB MIDI: no input detected";
-    statusEl.textContent =
-      "No USB MIDI input detected. Plug in the keyboard, keep it powered on, then click Use USB MIDI again.";
+    inputStatusEl.textContent = "No input detected";
+    statusEl.textContent = "Plug in and power on the keyboard, then retry.";
     midiButtonLabel.textContent = "Retry USB MIDI";
     clearActiveNotes();
     return;
@@ -1263,23 +1576,28 @@ function updateMidiStatus() {
 
   const names = inputs.map(midiInputName).join(", ");
   midiReady = true;
-  inputStatusEl.textContent = `USB MIDI: ${inputs.length} input${inputs.length === 1 ? "" : "s"} connected`;
-  statusEl.textContent = `USB MIDI ready: ${names}. Play your piano keyboard.`;
+  inputStatusEl.textContent = `${inputs.length} input${inputs.length === 1 ? "" : "s"} connected`;
+  statusEl.textContent = `Ready: ${names}.`;
   midiButtonLabel.textContent = "Refresh USB MIDI";
 }
 
+/**
+ * Switch to USB MIDI input mode and request Web MIDI access from the
+ * browser, updating status text based on the outcome.
+ * @returns {Promise<void>}
+ */
 async function enableMidi() {
   setInputMode("midi");
   midiReady = false;
   clearActiveNotes();
 
   if (!navigator.requestMIDIAccess) {
-    statusEl.textContent = "Web MIDI is not supported by this browser. Try Chrome or Edge.";
-    inputStatusEl.textContent = "USB MIDI: unsupported browser";
+    statusEl.textContent = "Not supported. Try Chrome or Edge.";
+    inputStatusEl.textContent = "Unsupported browser";
     return;
   }
 
-  inputStatusEl.textContent = "USB MIDI: requesting access";
+  inputStatusEl.textContent = "Requesting access…";
 
   try {
     midiAccess = await navigator.requestMIDIAccess({ sysex: false });
@@ -1289,20 +1607,19 @@ async function enableMidi() {
     updateMidiStatus();
   } catch (error) {
     const denied = error?.name === "SecurityError" || error?.name === "NotAllowedError";
-    inputStatusEl.textContent = denied ? "USB MIDI: permission denied" : "USB MIDI: connection failed";
-    statusEl.textContent = denied
-      ? "USB MIDI permission was blocked. Allow MIDI access in the browser prompt or site settings, then retry."
-      : "USB MIDI could not start. Check the cable, keyboard power, and browser MIDI permissions, then retry.";
+    inputStatusEl.textContent = denied ? "Permission denied" : "Connection failed";
+    statusEl.textContent = denied ? "Allow MIDI access, then retry." : "Check the cable and retry.";
   }
 }
 
+/** Switch to computer-keyboard input mode and prepare the audio context. */
 function enableKeyboard() {
   setInputMode("keyboard");
   midiReady = false;
   clearActiveNotes();
   createKeyboardAudio();
-  inputStatusEl.textContent = "Computer keyboard: QWERTZ mode active";
-  statusEl.textContent = "Computer keyboard ready with piano sound. Use A W S E D F T G Z H U J K.";
+  inputStatusEl.textContent = "Keyboard active";
+  statusEl.textContent = "Keyboard ready.";
 }
 
 window.addEventListener("keydown", (event) => {
@@ -1333,7 +1650,7 @@ window.addEventListener("blur", clearActiveNotes);
 
 keysEl.addEventListener("pointerdown", (event) => {
   if (inputMode !== "keyboard") {
-    statusEl.textContent = "Select computer keyboard mode to use the on-screen keys.";
+    statusEl.textContent = "Select computer keyboard mode first.";
     return;
   }
 
@@ -1368,6 +1685,20 @@ keysEl.addEventListener("pointercancel", (event) => {
   }
 });
 
+progressionFileInput.addEventListener("change", handleProgressionFile);
+progressionClearButton.addEventListener("click", clearProgression);
+librarySourceSelect.addEventListener("change", loadLibrarySongOptions);
+libraryLoadButton.addEventListener("click", loadSelectedLibrarySong);
+progressionModeEl.addEventListener("change", () => {
+  progressionPracticeMode = progressionModeEl.querySelector("input:checked")?.value || "random";
+  // Exactly one of the two dropdown areas is shown at a time: the
+  // upload/library config for "Custom progression", or Chord
+  // categories/Recognition mode for "Random practice".
+  progressionConfigEl.hidden = progressionPracticeMode !== "custom";
+  randomPracticeConfigEl.hidden = progressionPracticeMode !== "random";
+  statusEl.textContent = progressionPracticeMode === "custom" ? "Custom progression selected." : "Random practice selected.";
+});
+
 startButton.addEventListener("click", startGame);
 pauseButton.addEventListener("click", togglePause);
 stopButton.addEventListener("click", stopGame);
@@ -1386,22 +1717,28 @@ resetStatsButton.addEventListener("click", async () => {
       renderMastery(await response.json());
     }
   } catch (error) {
-    statusEl.textContent = "Could not reset stats; check the server connection.";
+    statusEl.textContent = "Could not reset stats.";
   }
 });
 recognitionModeEl.addEventListener("change", () => {
   clearActiveNotes();
   chordEl.textContent = "Listening";
-  statusEl.textContent =
-    recognitionMode() === "arpeggio"
-      ? "Arpeggio recognition active. Play the notes one after another."
-      : "Held chord recognition active. Hold the notes together.";
+  statusEl.textContent = recognitionMode() === "arpeggio" ? "Arpeggio mode." : "Held chord mode.";
 });
 
 scene.configure({
   isRunning: () => gameRunning && !paused,
   isResolving: () => resolving,
   getSpeed: () => speed,
+  // Only custom (uploaded/library) progressions carry real rhythm data; in
+  // random practice this stays null and the scene falls back to a plain
+  // speed-slider pace. See models/chords.py's duration_beats.
+  getTargetDurationSeconds: () => {
+    if (progressionPracticeMode !== "custom" || !targetPrompt?.duration_beats) {
+      return null;
+    }
+    return (targetPrompt.duration_beats * 60) / customProgressionTempo;
+  },
   getLabel: () => targetPrompt?.symbol || "Chord",
   getStatusLabel: () => {
     if (!gameRunning) {
@@ -1434,10 +1771,13 @@ renderAvatarPreview();
 if (savedPlayerName) {
   playerNameInput.value = savedPlayerName;
 }
-if (savedPlayerMode === "league") {
-  const leagueRadio = playerModeEl.querySelector('input[value="league"]');
-  if (leagueRadio) {
-    leagueRadio.checked = true;
+// Neither radio is checked by default (see template/index.html) so a
+// first-time visitor sees no pre-selection; a returning visitor's own
+// earlier explicit choice — solo or league — is restored either way.
+if (savedPlayerMode === "league" || savedPlayerMode === "solo") {
+  const savedRadio = playerModeEl.querySelector(`input[value="${savedPlayerMode}"]`);
+  if (savedRadio) {
+    savedRadio.checked = true;
   }
 }
 updatePlayerJoinVisibility();
@@ -1450,4 +1790,5 @@ renderTargetPrompt();
 loadModules();
 loadStats();
 loadLeaderboard();
+loadLibrarySongOptions();
 scene.begin();

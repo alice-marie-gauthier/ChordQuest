@@ -11,21 +11,29 @@
       <section class="hero">
         <p>ChordQuest Runner</p>
         <h1>Catch the chord as it arrives.</h1>
-        <span id="status">Choose categories, select USB MIDI or computer keyboard, then start.</span>
+        <span id="status">Set up, then start.</span>
       </section>
 
       <section class="player-panel" aria-label="Player">
-        <span>Player</span>
+        <span>
+          <span class="heading-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="8" r="3.2" />
+              <path d="M5 20c0-4 3-6.5 7-6.5s7 2.5 7 6.5" />
+            </svg>
+          </span>
+          Player
+        </span>
         <div class="player-mode" id="playerMode">
           <label>
-            <input type="radio" name="playerMode" value="solo" checked />
+            <input type="radio" name="playerMode" value="solo" />
             <span class="option-icon" aria-hidden="true">
               <svg viewBox="0 0 48 48" width="26" height="26">
                 <circle cx="24" cy="15" r="8" fill="none" stroke="currentColor" stroke-width="3" />
                 <path d="M9 40 Q9 25 24 25 Q39 25 39 40" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" />
               </svg>
             </span>
-            <span class="option-text"><strong>Practice solo</strong><small>Local session, off the leaderboard</small></span>
+            <span class="option-text"><strong>Practice solo</strong><small>Local, unranked</small></span>
           </label>
           <label>
             <input type="radio" name="playerMode" value="league" />
@@ -36,7 +44,7 @@
                 <rect x="32" y="30" width="12" height="12" rx="2" fill="currentColor" opacity="0.55" />
               </svg>
             </span>
-            <span class="option-text"><strong>Join the Chord League</strong><small>Ranked, with your own avatar</small></span>
+            <span class="option-text"><strong>Join the Chord League</strong><small>Ranked</small></span>
           </label>
         </div>
         <div class="player-join" id="playerJoin" hidden>
@@ -73,28 +81,187 @@
             <input id="playerNameInput" type="text" maxlength="24" placeholder="Your name" autocomplete="off" />
             <button id="joinLeagueButton" type="button">Join</button>
           </div>
-          <small id="playerStatus">Practice mode: scores stay local and off the leaderboard.</small>
+          <small id="playerStatus">Local scores only</small>
         </div>
       </section>
 
-      <section class="setup" aria-label="Game parameters">
-        <div>
-          <span>Chord categories</span>
-          <div class="category-grid" id="categories"></div>
+      <section class="progression-panel" aria-label="Song progression">
+        <span>
+          <span class="heading-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="8" y1="6" x2="20" y2="6" />
+              <line x1="8" y1="12" x2="20" y2="12" />
+              <line x1="8" y1="18" x2="20" y2="18" />
+              <circle cx="4" cy="6" r="1.4" fill="currentColor" stroke="none" />
+              <circle cx="4" cy="12" r="1.4" fill="currentColor" stroke="none" />
+              <circle cx="4" cy="18" r="1.4" fill="currentColor" stroke="none" />
+            </svg>
+          </span>
+          Song progression
+        </span>
+
+        <div class="recognition-mode" id="progressionMode">
+          <label>
+            <input type="radio" name="progressionMode" value="random" />
+            <span class="option-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="16 3 21 3 21 8" />
+                <line x1="4" y1="20" x2="21" y2="3" />
+                <polyline points="21 16 21 21 16 21" />
+                <line x1="15" y1="15" x2="21" y2="21" />
+                <line x1="4" y1="4" x2="9" y2="9" />
+              </svg>
+            </span>
+            <span class="option-text"><strong>Random practice</strong><small>Selected categories</small></span>
+          </label>
+          <label>
+            <input type="radio" name="progressionMode" value="custom" />
+            <span class="option-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="10" y1="6" x2="20" y2="6" />
+                <line x1="10" y1="12" x2="20" y2="12" />
+                <line x1="10" y1="18" x2="20" y2="18" />
+                <line x1="4" y1="6" x2="4.01" y2="6" />
+                <line x1="4" y1="12" x2="4.01" y2="12" />
+                <line x1="4" y1="18" x2="4.01" y2="18" />
+              </svg>
+            </span>
+            <span class="option-text"><strong>Custom progression</strong><small id="progressionSummary">No song loaded</small></span>
+          </label>
+        </div>
+
+        <!-- Shown while "Random practice" is selected (the default); collapses
+             away in favor of #progressionConfig once "Custom progression" is
+             chosen instead. -->
+        <div class="random-practice-config" id="randomPracticeConfig" hidden>
+          <div class="progression-subsection">
+            <span>
+              <span class="heading-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="7" cy="18" r="3" fill="currentColor" stroke="none" />
+                  <line x1="10" y1="18" x2="10" y2="4" />
+                  <path d="M10 4l7 2v4" />
+                </svg>
+              </span>
+              Chord categories
+            </span>
+            <div class="category-grid" id="categories"></div>
+          </div>
           <div class="recognition-mode" id="recognitionMode">
-            <span>Recognition mode</span>
+            <span>
+              <span class="heading-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="5" y1="10" x2="5" y2="18" />
+                  <line x1="10" y1="5" x2="10" y2="19" />
+                  <line x1="15" y1="8" x2="15" y2="16" />
+                  <line x1="19" y1="11" x2="19" y2="17" />
+                </svg>
+              </span>
+              Recognition mode
+            </span>
             <label>
               <input type="radio" name="recognitionMode" value="held" checked />
-              <span class="option-text"><strong>Held chord</strong><small>Hold all the notes down together</small></span>
+              <span class="option-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="7" y1="4" x2="7" y2="20" />
+                  <line x1="12" y1="4" x2="12" y2="20" />
+                  <line x1="17" y1="4" x2="17" y2="20" />
+                </svg>
+              </span>
+              <span class="option-text"><strong>Held chord</strong><small>All at once</small></span>
             </label>
             <label>
               <input type="radio" name="recognitionMode" value="arpeggio" />
-              <span class="option-text"><strong>Arpeggio</strong><small>Play the notes one after another</small></span>
+              <span class="option-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="5" cy="19" r="1.6" fill="currentColor" stroke="none" />
+                  <circle cx="11" cy="13" r="1.6" fill="currentColor" stroke="none" />
+                  <circle cx="17" cy="7" r="1.6" fill="currentColor" stroke="none" />
+                  <path d="M5 19L17 7" stroke-dasharray="1 3.4" />
+                </svg>
+              </span>
+              <span class="option-text"><strong>Arpeggio</strong><small>One by one</small></span>
             </label>
           </div>
         </div>
+
+        <div class="progression-config" id="progressionConfig" hidden>
+          <div class="progression-controls">
+            <label class="progression-upload-label" for="progressionFileInput">
+              <span class="button-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 15V4" />
+                  <path d="M7 9l5-5 5 5" />
+                  <path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
+                </svg>
+              </span>
+              Upload CSV
+              <input type="file" id="progressionFileInput" accept=".csv,text/csv" hidden />
+            </label>
+            <input type="text" id="progressionTitleInput" placeholder="Song title (optional)" maxlength="80" />
+            <input type="number" id="progressionTempoInput" placeholder="Tempo (BPM)" min="20" max="300" step="1" />
+            <a id="progressionTemplateLink" class="progression-template-link" href="/templates/chord-progression-template.csv" download>
+              <span class="button-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 4v11" />
+                  <path d="M7 10l5 5 5-5" />
+                  <path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
+                </svg>
+              </span>
+              Download template
+            </a>
+            <button id="progressionClearButton" type="button" hidden>
+              <span class="button-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="9" />
+                  <line x1="9" y1="9" x2="15" y2="15" />
+                  <line x1="15" y1="9" x2="9" y2="15" />
+                </svg>
+              </span>
+              Clear
+            </button>
+          </div>
+          <small id="progressionStatus"></small>
+
+          <div class="progression-library">
+            <span>
+              <span class="heading-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 6C9.5 4.3 6 4 3 5v14c3-1 6.5-.7 9 1 2.5-1.7 6-2 9-1V5c-3-1-6.5-.7-9 1z" />
+                  <line x1="12" y1="6" x2="12" y2="20" />
+                </svg>
+              </span>
+              Or load from a library
+            </span>
+            <div class="progression-library-controls">
+              <select id="librarySourceSelect" aria-label="Library">
+                <option value="curated">My Library</option>
+                <option value="uploaded">Uploaded Songs</option>
+              </select>
+              <select id="librarySongSelect" aria-label="Song"></select>
+              <button id="libraryLoadButton" type="button">
+                <span class="button-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+                  </svg>
+                </span>
+                Load
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="play-row" aria-label="Input and game controls">
         <div class="controls">
-          <span>Input device</span>
+          <span>
+            <span class="heading-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M13 2 4 14h6l-1 8 9-12h-6z" fill="currentColor" stroke="none" />
+              </svg>
+            </span>
+            Input device
+          </span>
           <div class="input-mode-grid">
             <button class="input-mode-card" id="midiButton" type="button">
               <span class="input-mode-icon" aria-hidden="true">
@@ -107,7 +274,7 @@
                 </svg>
               </span>
               <strong id="midiButtonLabel">USB MIDI</strong>
-              <small>Plug in your piano keyboard</small>
+              <small>USB cable</small>
             </button>
             <button class="input-mode-card" id="keyboardButton" type="button">
               <span class="input-mode-icon" aria-hidden="true">
@@ -121,77 +288,134 @@
                 </svg>
               </span>
               <strong>Computer keyboard</strong>
-              <small>Play with A W S E D F T G Z H U J K</small>
+              <small>A W S E D F T G Z H U J K</small>
             </button>
           </div>
-          <small id="inputStatus">Input: choose USB MIDI or QWERTZ keyboard</small>
+          <small id="inputStatus">No input selected</small>
           <label class="speed-control">
-            <span>Speed <strong id="speedValue">2.8</strong></span>
+            <span>
+              <span class="speed-label">
+                <span class="heading-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 17a8 8 0 0 1 16 0" />
+                    <line x1="12" y1="17" x2="16" y2="10" />
+                    <circle cx="12" cy="17" r="1.4" fill="currentColor" stroke="none" />
+                  </svg>
+                </span>
+                Speed
+              </span>
+              <strong id="speedValue">2.8</strong>
+            </span>
             <input id="speedSlider" type="range" min="0.5" max="7" step="0.1" value="2.8" />
           </label>
         </div>
-      </section>
 
-      <section class="control-bar" aria-label="Game controls">
-        <button id="startButton" type="button" class="control-button control-start">
-          <span class="control-icon" aria-hidden="true">▶</span> Start game
-        </button>
-        <button id="pauseButton" type="button" class="control-button control-pause" disabled>
-          <span class="control-icon" aria-hidden="true">❚❚</span> Pause
-        </button>
-        <button id="stopButton" type="button" class="control-button control-stop">
-          <span class="control-icon" aria-hidden="true">■</span> Stop game
-        </button>
-      </section>
-
-      <section class="game-hud">
-        <div>
-          <span>Target chord</span>
-          <strong id="target">Select and start</strong>
-          <small id="formula"></small>
-        </div>
-        <div>
-          <span>Detected</span>
-          <strong id="chord">Listening</strong>
-          <small id="notes">Notes: none</small>
-        </div>
-        <div>
-          <span>Score</span>
-          <strong id="score">0 pts</strong>
-          <small id="meta">Speed 2.8</small>
+        <div class="control-stack">
+          <button id="startButton" type="button" class="control-button control-start">
+            <span class="control-icon" aria-hidden="true">▶</span> Start game
+          </button>
+          <button id="pauseButton" type="button" class="control-button control-pause" disabled>
+            <span class="control-icon" aria-hidden="true">❚❚</span> Pause
+          </button>
+          <button id="stopButton" type="button" class="control-button control-stop">
+            <span class="control-icon" aria-hidden="true">■</span> Stop game
+          </button>
         </div>
       </section>
 
-      <section class="target-panel" aria-label="Interactive chord target">
-        <div>
-          <span>Arriving chord</span>
-          <strong id="arrivalChord">Waiting</strong>
-        </div>
-        <div class="arrival-track" aria-hidden="true">
-          <div id="arrivalMeter"></div>
-        </div>
-      </section>
+      <div class="play-area" id="playArea" hidden>
+        <section class="game-hud">
+          <div>
+            <span>Target chord</span>
+            <strong id="target">Select and start</strong>
+            <small id="formula"></small>
+          </div>
+          <div>
+            <span>Detected</span>
+            <strong id="chord">Listening</strong>
+            <small id="notes">Notes: none</small>
+          </div>
+          <div>
+            <span>Score</span>
+            <strong id="score">0 pts</strong>
+            <small id="meta">Speed 2.8</small>
+          </div>
+        </section>
 
-      <canvas id="game" width="980" height="320" aria-label="Runner game"></canvas>
+        <section class="target-panel" aria-label="Interactive chord target">
+          <div>
+            <span>Arriving chord</span>
+            <strong id="arrivalChord">Waiting</strong>
+          </div>
+          <div class="arrival-track" aria-hidden="true">
+            <div id="arrivalMeter"></div>
+          </div>
+        </section>
 
-      <p class="keyboard-guide">QWERTZ keyboard: A W S E D F T G Z H U J K</p>
-      <section class="keys" id="keys"></section>
+        <canvas id="game" width="980" height="320" aria-label="Runner game"></canvas>
 
-      <section class="mastery-panel" aria-label="Chord mastery">
-        <div class="mastery-panel-header">
-          <span>Mastery by chord type</span>
-          <button id="resetStatsButton" type="button">Reset stats</button>
+        <p class="keyboard-guide">Keyboard: A W S E D F T G Z H U J K</p>
+        <section class="keys" id="keys"></section>
+
+        <section class="mastery-panel" aria-label="Chord mastery">
+          <div class="mastery-panel-header">
+            <span>
+              <span class="heading-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="9" />
+                  <circle cx="12" cy="12" r="5" />
+                  <circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none" />
+                </svg>
+              </span>
+              Mastery by chord type
+            </span>
+            <button id="resetStatsButton" type="button">
+              <span class="button-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 12a9 9 0 1 1-3-6.7" />
+                  <polyline points="21 3 21 9 15 9" />
+                </svg>
+              </span>
+              Reset stats
+            </button>
+          </div>
+          <div id="masteryGrid" class="mastery-grid">No stats yet</div>
+        </section>
+
+        <section class="mastery-panel leaderboard-panel" aria-label="Chord League leaderboard">
+          <div class="mastery-panel-header">
+            <span>
+              <span class="heading-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M7 4h10v4a5 5 0 0 1-10 0V4z" />
+                  <path d="M7 5H4v2a3 3 0 0 0 3 3" />
+                  <path d="M17 5h3v2a3 3 0 0 1-3 3" />
+                  <line x1="12" y1="13" x2="12" y2="17" />
+                  <line x1="8" y1="21" x2="16" y2="21" />
+                  <line x1="12" y1="17" x2="12" y2="21" />
+                </svg>
+              </span>
+              Chord League leaderboard
+            </span>
+          </div>
+          <div id="leaderboardPodium" class="leaderboard-podium"></div>
+          <div id="leaderboardGrid" class="leaderboard-grid">No rankings yet</div>
+        </section>
+      </div>
+
+      <footer class="site-footer">
+        <img class="footer-avatar" src="/images/avatar.png" alt="Alice Gauthier" />
+        <div class="footer-text">
+          <strong>By Alice Gauthier</strong>
+          <small>© 2026 Alice Gauthier · MIT License</small>
         </div>
-        <div id="masteryGrid" class="mastery-grid">Play a few chords to build your mastery stats.</div>
-      </section>
-
-      <section class="mastery-panel leaderboard-panel" aria-label="Chord League leaderboard">
-        <div class="mastery-panel-header">
-          <span>Chord League leaderboard</span>
-        </div>
-        <div id="leaderboardPodium" class="leaderboard-podium"></div>
-        <div id="leaderboardGrid" class="leaderboard-grid">Join the Chord League to see rankings.</div>
-      </section>
+        <a class="footer-github" href="https://github.com/alice-marie-gauthier/ChordQuest" target="_blank" rel="noopener noreferrer">
+          <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor" aria-hidden="true">
+            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
+          </svg>
+          <span>View on GitHub · Suggest changes</span>
+        </a>
+      </footer>
     </main>
     <script type="module" src="/js/app.js"></script>
   </body>

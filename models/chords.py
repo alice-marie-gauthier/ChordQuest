@@ -45,6 +45,7 @@ class ChordPrompt(TypedDict):
     midi_notes: list[int]
     inversion: int
     formula: str
+    duration_beats: float
 
 
 @dataclass(frozen=True)
@@ -324,7 +325,13 @@ def recognize_chord(midi_notes: list[int], mode: str = "held") -> RecognizedChor
     return None
 
 
-def build_prompt(root_name: str, family: ChordFamily, category: str | None = None, inversion: int = 0) -> ChordPrompt:
+def build_prompt(
+    root_name: str,
+    family: ChordFamily,
+    category: str | None = None,
+    inversion: int = 0,
+    duration_beats: float = 1.0,
+) -> ChordPrompt:
     """Build a chord prompt (the "play this chord" target) for one root/family.
 
     Args:
@@ -335,10 +342,14 @@ def build_prompt(root_name: str, family: ChordFamily, category: str | None = Non
             "inversions" even though they reuse the major/minor family).
         inversion: 0 for root position; for a 3-note family, 1 or 2 to
             voice that many chord tones below the root, an octave up.
+        duration_beats: How long this chord should be held, in
+            quarter-note beats (1.0 = quarter/noire, 2.0 = half/blanche,
+            0.5 = eighth/croche). Only meaningful for a timed custom
+            progression; random/category practice prompts use the default.
 
     Returns:
         A ChordPrompt with the root, family, symbol, notes, MIDI notes,
-        inversion and formula.
+        inversion, formula and duration.
     """
     root = pitch_class(root_name)
     pitch_classes = [(root + interval) % 12 for interval in family.intervals]
@@ -358,6 +369,7 @@ def build_prompt(root_name: str, family: ChordFamily, category: str | None = Non
         "midi_notes": ordered_midi_notes,
         "inversion": inversion,
         "formula": family.formula,
+        "duration_beats": duration_beats,
     }
 
 
@@ -408,3 +420,137 @@ def random_prompt(categories: list[str]) -> ChordPrompt:
         A randomly chosen ChordPrompt.
     """
     return random.choice(create_prompt_pool(categories))
+
+
+# Suffixes sorted longest-first so e.g. "m7b5" is tried before "m7" before
+# "m" — an exact match on the shortest suffix first would misparse "m7b5"
+# as minor ("m") with leftover "7b5".
+_SUFFIXES_BY_LENGTH = tuple(sorted(CHORD_FAMILIES, key=lambda family: len(family.suffix), reverse=True))
+
+DEFAULT_DURATION_BEATS = 1.0  # one quarter-note (noire) beat
+
+
+class ProgressionEntryError(TypedDict):
+    index: int
+    chord: str
+    message: str
+
+
+def _parse_duration_token(token: str) -> float:
+    """Parse a note-duration suffix into a number of quarter-note beats.
+
+    Args:
+        token: The text after a chord's ":" separator, e.g. "2" (half
+            note/blanche), "4" (whole note/ronde), "/2" (eighth
+            note/croche), "/4" (sixteenth note).
+
+    Returns:
+        Duration in quarter-note beats (1.0 = a quarter/noire).
+
+    Raises:
+        ValueError: If the token isn't a positive integer, or "/"
+            followed by a positive integer.
+    """
+    if token.startswith("/"):
+        divisor = token[1:]
+        if not divisor.isdigit() or int(divisor) <= 0:
+            raise ValueError(f"Invalid duration '/{divisor}'")
+        return DEFAULT_DURATION_BEATS / int(divisor)
+
+    if not token.isdigit() or int(token) <= 0:
+        raise ValueError(f"Invalid duration '{token}'")
+    return DEFAULT_DURATION_BEATS * int(token)
+
+
+def parse_chord_symbol(symbol: str) -> ChordPrompt:
+    """Parse a chord symbol, with an optional duration, into a prompt.
+
+    Only recognizes the exact vocabulary the game itself teaches: a root
+    letter A-G, an optional "#"/"b" accidental, and one of the known
+    ChordFamily suffixes ("", "m", "7", "maj7", "m7", "m7b5", "sus2",
+    "sus4", "add9", "9", "11", "13") — matching case-insensitively on the
+    suffix. Inversions aren't supported; every parsed chord is root
+    position.
+
+    An optional ":<duration>" suffix sets how long the chord is held, in
+    quarter-note beats: "C" (no suffix) is a quarter/noire, "C:2" a
+    half/blanche, "C:4" a whole/ronde, "C:/2" an eighth/croche, "C:/4" a
+    sixteenth. The colon is required (rather than appending the duration
+    directly, e.g. "C2") because several chord qualities are themselves
+    digits — "G7" already means "G dominant 7th", so a bare "G7" can't
+    also mean "G major held for 7 beats" without ambiguity.
+
+    Args:
+        symbol: A chord symbol, optionally with a duration, e.g. "C",
+            "Am7", "Bbmaj7:2", "F#sus4:/2".
+
+    Returns:
+        The corresponding ChordPrompt (category "custom", inversion 0).
+
+    Raises:
+        ValueError: If the symbol is empty, its root isn't a valid note
+            name, its remaining suffix doesn't match a known chord family,
+            or its duration suffix is malformed.
+    """
+    text = symbol.strip()
+    if not text:
+        raise ValueError("Empty chord symbol")
+
+    chord_text, has_duration, duration_text = text.partition(":")
+    duration_beats = DEFAULT_DURATION_BEATS
+    if has_duration:
+        duration_beats = _parse_duration_token(duration_text.strip())
+
+    chord_text = chord_text.strip()
+    if not chord_text:
+        raise ValueError(f"'{symbol}' is missing a chord before ':'")
+
+    letter = chord_text[0].upper()
+    if letter not in "ABCDEFG":
+        raise ValueError(f"'{symbol}' doesn't start with a note letter A-G")
+
+    rest = chord_text[1:]
+    if rest[:1] == "#":
+        root_name, rest = f"{letter}#", rest[1:]
+    elif rest[:1].lower() == "b":
+        root_name, rest = f"{letter}b", rest[1:]
+    else:
+        root_name = letter
+
+    if root_name not in NOTE_ALIASES:
+        raise ValueError(f"'{symbol}' has no valid root note")
+
+    quality = rest.strip().lower()
+    family = next((candidate for candidate in _SUFFIXES_BY_LENGTH if candidate.suffix == quality), None)
+    if family is None:
+        raise ValueError(f"'{symbol}' has an unrecognized chord quality '{rest.strip()}'")
+
+    return build_prompt(root_name, family, category="custom", duration_beats=duration_beats)
+
+
+def parse_progression(chords: list[str]) -> tuple[list[ChordPrompt], list[ProgressionEntryError]]:
+    """Parse an ordered list of chord symbols into prompts, tolerating bad entries.
+
+    Args:
+        chords: Raw chord symbol strings, in the order they should be
+            played (e.g. from an uploaded CSV column). Blank entries are
+            silently skipped.
+
+    Returns:
+        A (prompts, errors) tuple: successfully parsed prompts in order,
+        and a list of {index, chord, message} for entries that failed to
+        parse — a bad line doesn't abort the rest of the import.
+    """
+    prompts: list[ChordPrompt] = []
+    errors: list[ProgressionEntryError] = []
+
+    for index, raw in enumerate(chords):
+        text = raw.strip()
+        if not text:
+            continue
+        try:
+            prompts.append(parse_chord_symbol(text))
+        except ValueError as error:
+            errors.append({"index": index, "chord": text, "message": str(error)})
+
+    return prompts, errors

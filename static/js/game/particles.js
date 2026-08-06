@@ -26,7 +26,7 @@ export class ParticleSystem {
   burst(x, y, options = {}) {
     const {
       count = 14,
-      colors = [Palette.brass, Palette.forest, Palette.wine],
+      colors = [Palette.brown, Palette.forest, Palette.wine],
       speed = 220,
       spread = Math.PI * 2,
       gravity = 480,

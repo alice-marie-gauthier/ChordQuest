@@ -2,7 +2,7 @@ import { clamp } from "./engine.js";
 import { Palette } from "./palette.js";
 
 /**
- * The arriving chord, rendered as a brass-trimmed plaque with a musical
+ * The arriving chord, rendered as a brown-trimmed plaque with a musical
  * note glyph — a nameplate rather than a plain warning block — that glows
  * more urgently the closer it gets (`proximity`, a 0..1 value the scene
  * computes from its position).
@@ -85,8 +85,8 @@ export class Obstacle {
     ctx.fill();
     ctx.restore();
 
-    // A thin brass frame, like an engraved instrument nameplate.
-    ctx.strokeStyle = Palette.brassSoft;
+    // A thin frame, like an engraved instrument nameplate.
+    ctx.strokeStyle = Palette.brownSoft;
     ctx.lineWidth = 2;
     roundRect(ctx, this.x + 3, y + 3, width - 6, height - 6, 9);
     ctx.stroke();
@@ -97,7 +97,7 @@ export class Obstacle {
     ctx.textAlign = "start";
 
     // The hanging string above the plaque.
-    ctx.fillStyle = Palette.brassDeep;
+    ctx.fillStyle = Palette.brownDeep;
     roundRect(ctx, this.x + 12, y - 14, width - 24, 14, 5);
     ctx.fill();
   }

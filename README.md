@@ -12,16 +12,17 @@ Adaptive piano chord runner game scripted in Python with a browser UI.
 - Choose a recognition mode: held chord or arpeggio.
 - Choose the runner speed with a slider before or during the game.
 - Runner game: the arriving chord is the obstacle, and the boy jumps when the requested chord is correct.
-- Procedurally animated runner (small canvas game framework: state machine, squash-and-stretch jump, run-cycle limb swing, hit recoil with camera shake, particle bursts, parallax ground) — see `static/game/`.
+- Procedurally animated runner (small canvas game framework: state machine, squash-and-stretch jump, run-cycle limb swing, hit recoil with camera shake, particle bursts, parallax ground) — see `static/js/game/`.
 - Interactive frontend with playable on-screen piano keys.
 - Score points for correct chords without a life limit.
 - Say "error" when the played chord is wrong.
 - Say "game over" when the runner hits the arriving chord.
 - Start, Pause/Resume, and Stop a run at any time from one control bar.
+- `Song progression`: upload a CSV of chord symbols (one per line, e.g. a real song's progression you've transcribed yourself) to practice it in order instead of random chords; a downloadable template shows the expected format. Each chord can carry its own note duration and the song a tempo, so a loaded progression plays back in that actual rhythm (see "Rhythm and tempo" below).
 - Python backend in `app.py` serves prompts and recognizes chords from MIDI-style note numbers.
 - Per-chord-type mastery tracking (accuracy, speed, and practice count) with a reset control.
 - `Chord League`: pick a name, build a small avatar, and your scores are ranked on a persistent leaderboard (podium for the top 3) against everyone else who's played on this server; `Practice solo` keeps a session fully local and off the leaderboard.
-- A "sheet music" visual theme (parchment, ink, brass and wine accents, a staff-line motif, a bold plain sans-serif) shared by the page and the canvas game.
+- A visual theme matched to the Swiss Cat+ tools (white/grey-beige, cards on a soft shadow with a thin grey line, a brown accent, a bold plain sans-serif) shared by the page and the canvas game.
 - Unit tests for chord recognition, mastery tracking, and the Chord League leaderboard/avatars.
 
 ## USB MIDI
@@ -57,44 +58,99 @@ League names are matched case/accent-insensitively (`Alice` and `alice` are the 
 
 Once a run is started, `Pause` freezes the obstacle and stops chords from being scored (right or wrong) without losing your progress; the runner and background animation settle to idle while paused. Click `Resume` to continue exactly where you left off, or `Stop game` to end the run and reset for a new one.
 
+## Song Progression
+
+By default the game asks for random chords from your selected categories. To practice a real chord progression instead — your own transcription of a known song, a progression from a lesson, anything — click `Download template` for a one-column CSV (`chord`, then one chord symbol per line), fill it in with your own progression, and click `Upload CSV`.
+
+Accepted chord symbols are exactly the vocabulary the game itself teaches: a root letter A-G with an optional `#`/`b`, followed by one of `""` (major), `m` (minor), `7`, `maj7`, `m7`, `m7b5`, `sus2`, `sus4`, `add9`, `9`, `11`, `13` — e.g. `C`, `F#m`, `Bbmaj7`, `Dsus4`. Rows that don't match are skipped with a reason shown in the status line rather than failing the whole import; inversions aren't supported in a CSV (every chord loads in root position).
+
+Give the upload a `Song title` and, once it parses successfully, it's automatically saved to the **Uploaded Songs** library (see below) so you don't have to re-upload the file next time. Once a progression is loaded — by upload or from a library — a `Practice mode` choice appears: `Random practice` (the default) or `Custom progression`, which steps through the chords in order and loops back to the start when it reaches the end. Click `Clear` to remove the loaded progression and go back to random-only practice.
+
+ChordQuest doesn't fetch progressions from any external site — sheet-music platforms (Noviscore, Quickpartitions, Oktav, Tomplay, etc.) sell copyrighted arrangements and don't offer a public API for this, so pulling from them isn't something this project does. The CSV is entirely yours to fill in.
+
+### Rhythm and tempo
+
+Append `:<duration>` to a chord to give it a length other than one beat (a quarter note/noire), relative to the song's tempo:
+
+| Suffix | Note value | Example |
+| --- | --- | --- |
+| *(none)* | quarter note (noire) — 1 beat | `C` |
+| `:2` | half note (blanche) — 2 beats | `C:2` |
+| `:4` | whole note (ronde) — 4 beats | `C:4` |
+| `:/2` | eighth note (croche) — half a beat | `C:/2` |
+| `:/4` | sixteenth note — a quarter beat | `C:/4` |
+
+The `:` is required — a bare trailing digit is read as part of the chord quality instead (`G7` is a G dominant-7th chord, not "G for 7 beats"), so `G7:2` is how you'd write a dominant 7th held for a half note. Set a `Tempo (BPM)` alongside the CSV upload (or bake `tempo_bpm` into a library JSON file — see `library/curated/README.md`) and, when `Custom progression` is active, each chord's on-screen arrival is paced to its actual note value at that tempo instead of a uniform speed; the `Speed` slider still applies on top, as a multiplier around its default rather than an absolute pace.
+
+This is a manual notation, filled in by hand — ChordQuest does not read sheet music from an image or PDF (no OCR/OMR step). A scanned score still needs to be transcribed into a CSV/JSON progression using this format.
+
+## Song Libraries
+
+Below the upload controls, "Or load from a library" has two sources you can pick a song from without re-uploading a file:
+
+- **My Library** — songs *you* curate as JSON files in `library/curated/`, tracked in git. This is deliberately separate from uploads so it only ever contains what you chose to put there — see `library/curated/README.md` for the file format and how to add a song. Ships with one example progression to show the format.
+- **Uploaded Songs** — every CSV upload that includes a title and parses successfully is saved here automatically. Persisted to `data/uploaded_songs.json` (git-ignored, capped at 200 songs, oldest evicted first), so this grows from whatever anyone uploads through the app on this server.
+
+Pick a source, pick a song, and click `Load` to make it the active custom progression — same as uploading a CSV, just without needing the file again.
+
 ## Development
 
 Project layout:
 
 ```text
-app.py              Python backend API and static frontend server
-models/             Chord recognition, prompts, progress, and player logic
-  chords.py         Chord recognition, prompt pools, learning modules
+app.py              Python backend API; serves template/index.html and static/
+models/             Chord recognition, prompts, progress, player, and library logic
+  chords.py         Chord recognition, prompt pools, learning modules,
+                     chord-symbol/CSV progression parsing
   progress.py       Per-chord-type mastery stats (ChordStats, ProgressStore)
   players.py        Chord League players and the leaderboard (PlayerStore)
-data/                Runtime-only, git-ignored: players.json (Chord League)
+  library.py        Song libraries: CuratedLibrary (reads library/curated/),
+                     UploadedLibrary (auto-saved CSV uploads)
+data/               Runtime-only, git-ignored: players.json (Chord League),
+                     uploaded_songs.json (Uploaded Songs library)
+library/
+  curated/          "My Library": one JSON file per song, tracked in git —
+                     see curated/README.md for the format
+template/
+  index.html        The one HTML page, kept outside static/ on purpose so
+                     app.py serves it explicitly rather than as a static file
 static/
-  index.html        Frontend browser UI
-  app.js            Input handling, networking, HUD, and game/scene wiring
-  styles.css        Frontend styling (the shared "sheet music" palette)
-  avatar.js         Avatar trait tables + inline-SVG avatar renderer, shared
+  css/
+    styles.css      Frontend styling (the shared "sheet music" palette)
+  images/
+    photo_tete_bonhomme.png   Runner's head photo (optional; falls back to
+                               a built-in placeholder if missing)
+  templates/
+    chord-progression-template.csv   Downloadable starter file for the
+                                      Song Progression CSV import
+  js/
+    app.js          Input handling, networking, HUD, and game/scene wiring
+    avatar.js       Avatar trait tables + inline-SVG avatar renderer, shared
                      by the avatar builder and the leaderboard/podium
-  game/             Small canvas game framework (ES modules, no build step)
-    engine.js       Fixed-timestep GameLoop + easing/math helpers
-    palette.js      Color constants mirroring styles.css's CSS variables
-    runner.js       Runner entity: idle/run/jump/hit state machine with
+    game/           Small canvas game framework (ES modules, no build step)
+      engine.js     Fixed-timestep GameLoop + easing/math helpers
+      palette.js    Color constants mirroring styles.css's CSS variables
+      runner.js     Runner entity: idle/run/jump/hit state machine with
                      procedural skeletal animation (squash-and-stretch,
                      run-cycle limb swing, camera shake on a miss)
-    obstacle.js     The arriving chord tile, styled as a brass/wine plaque
+      obstacle.js   The arriving chord tile, styled as a brown/wine plaque
                      with a proximity glow
-    particles.js    Small pooled particle system (confetti, dust)
-    scene.js        Composes the above + a staff-line/piano-key parallax
+      particles.js  Small pooled particle system (confetti, dust)
+      scene.js      Composes the above + a staff-line/piano-key parallax
                      background into one scene; reads game state through
                      callbacks, has no game logic of its own (see
                      RunnerScene in the source for the hook contract
                      app.js wires up)
 tests/
-  test_chords.py    Chord recognition and prompt-pool tests
+  test_chords.py    Chord recognition, prompt-pool, and progression-CSV parsing tests
   test_progress.py  Mastery tracking tests
   test_players.py   Chord League player/leaderboard tests
+  test_library.py   Curated/uploaded song library tests
 ```
 
-The game canvas has no engine dependency and no build step: `game/*.js` are plain ES modules loaded directly by the browser (`static/index.html` loads `app.js` as `type="module"`), so any static file server works.
+Every Python function has a docstring (summary + Args/Returns), and every JavaScript function has an equivalent JSDoc comment (`@param`/`@returns`).
+
+The game canvas has no engine dependency and no build step: `static/js/game/*.js` are plain ES modules loaded directly by the browser (`template/index.html` loads `/js/app.js` as `type="module"`), so any static file server works.
 
 Backend API:
 
@@ -116,8 +172,22 @@ POST /api/players            Join or re-join the Chord League:
                               {"name": "Alice", "avatar": {"skin": "s3", "hairStyle": "short",
                                "hairColor": "c1", "accessory": "none", "outfit": "o1", "background": "b1"}}
                               `avatar` is optional; unknown/missing trait values fall back to
-                              the default rather than erroring — see static/avatar.js for the
-                              full trait ID tables
+                              the default rather than erroring — see static/js/avatar.js for
+                              the full trait ID tables
+POST /api/progressions       Parse an uploaded chord progression:
+                              {"chords": ["C", "G:2", "Am:/2"], "title": "My Song", "tempo_bpm": 96}
+                              Returns {"prompts": [...], "errors": [...], "saved": summary|null}
+                              — unparsable entries are reported per-row instead of failing the
+                              whole import; `title` and `tempo_bpm` are both optional, and when
+                              `title` is given the progression auto-saves to the Uploaded Songs
+                              library on success (with tempo_bpm, sanitized — see "Rhythm and
+                              tempo" above); each chord may carry its own ":<duration>" suffix
+GET  /api/library/curated    List "My Library" songs (id, title, artist, chord_count, tempo_bpm)
+GET  /api/library/curated/<id>
+                              One curated song's full detail (prompts included)
+GET  /api/library/uploaded   List "Uploaded Songs" (same shape as curated)
+GET  /api/library/uploaded/<id>
+                              One uploaded song's full detail
 ```
 
 Create and activate a local environment:

@@ -9,7 +9,8 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from models.chords import LEARNING_MODULES, random_prompt, recognize_chord
+from models.chords import LEARNING_MODULES, parse_progression, random_prompt, recognize_chord
+from models.library import CuratedLibrary, UploadedLibrary, is_valid_song_title
 from models.players import PlayerStore, is_valid_player_name, normalize_player_key
 from models.progress import ProgressStore
 
@@ -20,11 +21,14 @@ INDEX_TEMPLATE = TEMPLATE_DIR / "index.html"
 STATIC_DIR = ROOT / "static"
 DATA_DIR = ROOT / "data"
 PLAYERS_FILE = DATA_DIR / "players.json"
+UPLOADED_SONGS_FILE = DATA_DIR / "uploaded_songs.json"
+CURATED_LIBRARY_DIR = ROOT / "library" / "curated"
 
 RECOGNITION_MODES = ("held", "arpeggio")
 ATTEMPT_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_:.-]{1,80}$")
 MAX_BODY_BYTES = 4096
 MAX_ATTEMPT_POINTS = 1000  # headroom above the max session score per correct chord (100 * 7 speed)
+MAX_PROGRESSION_CHORDS = 300  # generous headroom above any real song's chord count
 
 # Chord mastery is tracked per player so each person's practice stats stay
 # separate; solo/anonymous practice (no player picked) uses its own bucket
@@ -34,6 +38,49 @@ PROGRESS_STORES: dict[str, ProgressStore] = {}
 PROGRESS_LOCK = threading.Lock()
 
 PLAYERS_LOCK = threading.Lock()
+
+# "My Library" — songs the site owner deliberately curates as JSON files
+# tracked in git (see library/curated/README.md). Read-only from the API's
+# point of view and reloaded from disk on every request.
+CURATED_LIBRARY = CuratedLibrary(CURATED_LIBRARY_DIR)
+
+# "Uploaded Songs" — auto-populated whenever a CSV upload parses
+# successfully and includes a title; kept separate from the curated
+# library so uploads can never pollute what the owner deliberately chose
+# to include.
+UPLOADED_LIBRARY_LOCK = threading.Lock()
+
+
+def _load_uploaded_library() -> UploadedLibrary:
+    """Load the uploaded-songs library persisted from a previous run.
+
+    Returns:
+        An UploadedLibrary built from data/uploaded_songs.json, or an
+        empty one if the file is missing, unreadable, or not valid JSON.
+    """
+    try:
+        raw = json.loads(UPLOADED_SONGS_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        raw = {}
+    return UploadedLibrary.from_state(raw)
+
+
+UPLOADED_LIBRARY = _load_uploaded_library()
+
+
+def _persist_uploaded_library() -> None:
+    """Write the current uploaded-songs library to data/uploaded_songs.json.
+
+    Same write-to-temp-then-rename and best-effort semantics as
+    _persist_players(); see there for the rationale.
+    """
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        tmp_path = UPLOADED_SONGS_FILE.with_suffix(".json.tmp")
+        tmp_path.write_text(json.dumps(UPLOADED_LIBRARY.to_state(), ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp_path.replace(UPLOADED_SONGS_FILE)
+    except OSError:
+        pass
 
 
 def _load_players() -> PlayerStore:
@@ -135,6 +182,17 @@ class ChordQuestHandler(SimpleHTTPRequestHandler):
         """
         super().__init__(*args, directory=str(STATIC_DIR), **kwargs)
 
+    def end_headers(self) -> None:
+        """Disable caching on every response.
+
+        This is a local development/practice tool, not a public site under
+        load — the cost of never caching is negligible, and it avoids the
+        classic "I edited the CSS/JS but the browser is still showing the
+        old version" confusion during active iteration.
+        """
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
     def do_GET(self) -> None:
         """Route a GET request to a JSON API handler, the page template, or
         a static file under static/ (css/js/images), in that order."""
@@ -175,6 +233,33 @@ class ChordQuestHandler(SimpleHTTPRequestHandler):
                 with PLAYERS_LOCK:
                     self._send_json(PLAYERS.leaderboard())
                 return
+
+            if parsed.path == "/api/library/curated":
+                self._send_json(CURATED_LIBRARY.list_songs())
+                return
+
+            if parsed.path.startswith("/api/library/curated/"):
+                song = CURATED_LIBRARY.get_song(parsed.path.removeprefix("/api/library/curated/"))
+                if song is None:
+                    self._send_error(HTTPStatus.NOT_FOUND, "Unknown song id")
+                else:
+                    self._send_json(song)
+                return
+
+            if parsed.path == "/api/library/uploaded":
+                with UPLOADED_LIBRARY_LOCK:
+                    self._send_json(UPLOADED_LIBRARY.list_songs())
+                return
+
+            if parsed.path.startswith("/api/library/uploaded/"):
+                song_id = parsed.path.removeprefix("/api/library/uploaded/")
+                with UPLOADED_LIBRARY_LOCK:
+                    song = UPLOADED_LIBRARY.get_song(song_id)
+                if song is None:
+                    self._send_error(HTTPStatus.NOT_FOUND, "Unknown song id")
+                else:
+                    self._send_json(song)
+                return
         except ChordQuestError as error:
             self._send_error(HTTPStatus.BAD_REQUEST, str(error))
             return
@@ -210,6 +295,10 @@ class ChordQuestHandler(SimpleHTTPRequestHandler):
 
             if parsed.path == "/api/players":
                 self._handle_join(self._read_json_body())
+                return
+
+            if parsed.path == "/api/progressions":
+                self._handle_progression(self._read_json_body())
                 return
 
             self._send_error(HTTPStatus.NOT_FOUND, "Unknown endpoint")
@@ -329,6 +418,61 @@ class ChordQuestHandler(SimpleHTTPRequestHandler):
                 _persist_players()
 
         self._send_json(stats_snapshot)
+
+    def _handle_progression(self, payload: dict) -> None:
+        """Handle POST /api/progressions: parse (and auto-save) an uploaded chord progression.
+
+        Args:
+            payload: Parsed JSON body; expects "chords", a list of raw
+                chord symbol strings (e.g. from an uploaded CSV's single
+                column, optionally with a ":<duration>" suffix — see
+                models.chords.parse_chord_symbol), in playing order. An
+                optional "title" string saves the progression into the
+                "Uploaded Songs" library (see models.library) as long as
+                at least one chord parsed successfully; an optional
+                "tempo_bpm" number sets that song's playback speed
+                (malformed/out-of-range values are silently clamped to a
+                sane default rather than rejected, same as an avatar's
+                trait fields).
+
+        Writes:
+            {"prompts": [...], "errors": [...], "saved": summary|null} —
+            "prompts"/"errors" are as returned by
+            models.chords.parse_progression; "saved" is that song's
+            SongSummary if it was saved to the uploaded library, else
+            null. A request with some unparsable entries still succeeds
+            (200) as long as "chords" itself was well-formed, so the
+            caller can show which specific rows failed without losing the
+            rest.
+
+        Raises:
+            ChordQuestError: If "chords" is missing, not a list, empty,
+                over MAX_PROGRESSION_CHORDS entries, contains a non-string
+                entry, or "title" is present but invalid.
+        """
+        chords = payload.get("chords")
+        title = payload.get("title")
+        tempo_bpm = payload.get("tempo_bpm")
+
+        if not isinstance(chords, list) or not chords:
+            raise ChordQuestError("'chords' must be a non-empty list")
+        if len(chords) > MAX_PROGRESSION_CHORDS:
+            raise ChordQuestError(f"'chords' must have at most {MAX_PROGRESSION_CHORDS} entries")
+        if not all(isinstance(chord, str) for chord in chords):
+            raise ChordQuestError("'chords' must be a list of strings")
+        if title is not None and (not isinstance(title, str) or not is_valid_song_title(title)):
+            raise ChordQuestError("Invalid 'title'")
+
+        prompts, errors = parse_progression(chords)
+
+        saved = None
+        if prompts and title:
+            with UPLOADED_LIBRARY_LOCK:
+                song = UPLOADED_LIBRARY.add_song(title, chords, tempo_bpm=tempo_bpm)
+                _persist_uploaded_library()
+                saved = song.summary()
+
+        self._send_json({"prompts": prompts, "errors": errors, "saved": saved})
 
     def _send_file(self, path: Path, content_type: str) -> None:
         """Send a file's contents as the full HTTP response.

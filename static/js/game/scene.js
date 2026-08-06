@@ -7,6 +7,11 @@ import { Palette } from "./palette.js";
 const START_X_PADDING = 120;
 const MISS_ZONE = { near: 86, far: 40 };
 const SPEED_TO_PX_PER_SEC = 62.5; // keeps the 0.5-7 speed slider feeling the same as before
+// The speed slider's own default value (see template/index.html's
+// #speedSlider), used as the "1x" reference point when a tempo-timed
+// custom progression is active: the slider then acts as a multiplier on
+// top of the song's own rhythm instead of setting an absolute pace.
+const DEFAULT_SPEED = 2.8;
 const NOTE_GLYPHS = ["♪", "♫", "♩"];
 const KEY_WIDTH = 22;
 
@@ -44,6 +49,7 @@ export class RunnerScene {
       isRunning: () => false,
       isResolving: () => false,
       getSpeed: () => 0,
+      getTargetDurationSeconds: () => null,
       getLabel: () => "Chord",
       getStatusLabel: () => "Press Start game"
     };
@@ -64,8 +70,9 @@ export class RunnerScene {
   /**
    * Wire up (or update) the callbacks the scene reads game state through.
    * @param {object} hooks - Any subset of: isRunning(), isResolving(),
-   *   getSpeed(), getLabel(), getStatusLabel() — see the defaults set in
-   *   the constructor for each one's contract.
+   *   getSpeed(), getTargetDurationSeconds(), getLabel(),
+   *   getStatusLabel() — see the defaults set in the constructor for each
+   *   one's contract.
    */
   configure(hooks) {
     Object.assign(this.hooks, hooks);
@@ -122,11 +129,22 @@ export class RunnerScene {
     this.particles.update(dt);
 
     if (running && !resolving) {
-      this.obstacle.speed = speed * SPEED_TO_PX_PER_SEC;
-      this.obstacle.update(dt, { moving: true });
-
       const start = this.canvas.width + START_X_PADDING;
       const end = 64;
+      const targetDuration = this.hooks.getTargetDurationSeconds();
+      if (targetDuration && targetDuration > 0) {
+        // A tempo-timed custom-progression chord: cover the fixed
+        // start→end distance in exactly targetDuration seconds (the
+        // chord's own note value at the song's tempo), with the speed
+        // slider acting as a multiplier around its default rather than
+        // an absolute pace.
+        const multiplier = speed / DEFAULT_SPEED;
+        this.obstacle.speed = ((start - end) / targetDuration) * multiplier;
+      } else {
+        this.obstacle.speed = speed * SPEED_TO_PX_PER_SEC;
+      }
+      this.obstacle.update(dt, { moving: true });
+
       const progress = clamp((start - this.obstacle.x) / (start - end), 0, 1);
       if (this.arrivalMeterEl) {
         this.arrivalMeterEl.style.width = `${progress * 100}%`;
@@ -173,7 +191,7 @@ export class RunnerScene {
       size: 15,
       tile: 140,
       alpha: 0.22,
-      color: Palette.brassDeep
+      color: Palette.brownDeep
     });
 
     ctx.fillStyle = Palette.paperCard;
@@ -197,8 +215,8 @@ export class RunnerScene {
     this.particles.render(ctx);
 
     ctx.fillStyle = Palette.ink;
-    ctx.font = "700 18px system-ui";
-    ctx.fillText(this.hooks.getStatusLabel(), 24, 34);
+    ctx.font = "700 14px system-ui";
+    ctx.fillText(this.hooks.getStatusLabel(), 24, 30);
   }
 
   /**
