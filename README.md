@@ -4,7 +4,7 @@ Adaptive piano chord runner game scripted in Python with a browser UI.
 
 ## Features
 
-- Select one or more chord categories: Major, Minor, 7th Chords, Suspensions, Inversions, Extensions.
+- Select one or more chord categories: Major, Minor, 7th Chords, Suspensions, Extensions, Inversions — each with an optional drawer for a precise pick of individual qualities (e.g. just Augmented, or just Dominant 7 b5) or, for Inversions, individual positions (Root/First/Second), modeled on [teoria.com](https://www.teoria.com/en/exercises/c34e.php)'s own chord ear-training breakdown.
 - Practice chords rooted on natural notes, sharps, and flats.
 - Play with a MIDI keyboard (USB or Bluetooth alike) through the browser Web MIDI API.
 - Play piano sounds with a QWERTZ computer keyboard using `A W S E D F T G Z H U J K`.
@@ -35,6 +35,14 @@ The Web MIDI API doesn't distinguish transport — a MIDI keyboard connected by 
 - **Yamaha UD-BT01 wireless MIDI adaptor (iOS only, sold separately)**: plugs into the same `USB TO HOST` port and adds an actual Bluetooth *MIDI* connection (distinct from the built-in Bluetooth *Audio*). With that adaptor connected, the piano shows up in iOS's built-in Bluetooth MIDI pairing screen — open `bluetooth-midi://` in Safari to reach it — and from there the `MIDI` card can see it wirelessly, the same as a USB keyboard.
 
 If you can see the P-225 from Yamaha Smart Pianist, check which of these two it's actually using (a USB cable, or a UD-BT01 adaptor) — Smart Pianist needs a real MIDI link too, so whichever one it's riding on is the one that'll also work for ChordQuest.
+
+## Chord Categories
+
+`Chord categories` picks random-practice prompts from 6 broad groups — Major, Minor, 7th Chords, Suspensions, Extensions, Inversions — always laid out as a fixed 3-column/2-row grid that never changes shape. Checking one of these pulls in every chord quality that belongs to it — e.g. `Major` covers plain major triads, augmented triads, and major-b5 triads all together.
+
+For a more precise pick, checking a category opens its own section in a drawer directly below its row of 3 (the cards themselves never resize or reflow), with one colored pill per chord quality — e.g. `7th Chords` opens Dominant 7, Dominant 7 b5, Dominant 7 #5, Major 7, Major 7 b5, Major 7 #5, Minor 7, Half-diminished, Diminished 7, Minor-major 7, 7sus4, matching the breakdown on [teoria.com's chord ear-training exercise](https://www.teoria.com/en/exercises/c34e.php). The drawer starts with nothing checked in it; check any pill there and it takes over from that category's whole-category behavior, for as long as at least one pill stays checked — uncheck them all to go back to practicing every quality in that category.
+
+`Inversions` gets the same drawer treatment, but along a different axis: not which chord quality, but which inversion — `Root position`, `First inversion`, `Second inversion`. It deliberately doesn't cover every quality: only Major, Minor, Diminished and Major b5 have inversions that are unambiguously identifiable from the notes played. Augmented, Sus2 and Sus4 are left out — an augmented triad's inversions are acoustically identical to some other augmented triad in root position (its intervals are evenly spaced, so any inversion just relabels a different root), and one of sus2's/sus4's two inversions always reads back as the other one's root position (the same three-notes-two-readings ambiguity `Held chord`/`Arpeggio` mode already resolves for a root-position sus2/sus4 — see "Recognition Mode" below). Asking to identify an inversion the recognizer can never actually confirm would just be a broken exercise, so those three stay available for root-position practice (in their regular category) without an inversions option.
 
 ## Computer Keyboard
 
@@ -153,8 +161,9 @@ static/
       runner.js     Runner entity: idle/run/jump/hit state machine with
                      procedural skeletal animation (squash-and-stretch,
                      run-cycle limb swing, camera shake on a miss)
-      obstacle.js   The arriving chord tile, styled as a brown/wine plaque
-                     with a proximity glow
+      obstacle.js   The arriving chord, styled as a racing pennant on a
+                     pole (candy-colored per chord, see palette.js) with
+                     a proximity glow
       particles.js  Small pooled particle system (confetti, dust)
       scene.js      Composes the above + a staff-line/piano-key parallax
                      background into one scene; reads game state through
@@ -177,7 +186,11 @@ Backend API:
 ```text
 GET  /api/modules            Chord categories and families (drives the checkboxes and mastery labels)
 GET  /api/prompt?categories=major,minor
-                              A random chord prompt from the selected categories
+                              A random chord prompt from the selected categories; a token can
+                              also be a specific ChordFamily id (e.g. "augmented") for the
+                              category drawers, or one of "inversionsRoot"/"inversionsFirst"/
+                              "inversionsSecond" for the Inversions drawer — any of these kinds
+                              can be mixed in the same comma-separated list
 GET  /api/recognize?notes=60,64,67&mode=held
                               Recognize a chord from MIDI-style note numbers; mode is "held" or "arpeggio"
 GET  /api/stats[?player=Name] Mastery snapshot; omit `player` for the shared solo bucket

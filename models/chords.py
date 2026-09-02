@@ -91,6 +91,10 @@ CHORD_FAMILIES = (
     ChordFamily("thirteenth", "extensions", "13th", "13", (0, 4, 7, 10, 14, 17, 21), "1-3-5-b7-9-11-13"),
 )
 
+# Fast lookup by id, e.g. for family_by_id() and create_prompt_pool()'s
+# fine-grained (single-quality) selection.
+FAMILIES_BY_ID = {family.id: family for family in CHORD_FAMILIES}
+
 ROOTS = ("C", "C#", "Db", "D", "D#", "Eb", "E", "F", "F#", "Gb", "G", "G#", "Ab", "A", "A#", "Bb", "B")
 CATEGORY_LABELS = {
     "major": "Major",
@@ -138,10 +142,30 @@ LEARNING_MODULES = [
             {"id": "diminished", "label": "Diminished inversions", "suffix": "dim", "formula": "1-b3-b5"},
             {"id": "majorFlat5", "label": "Major b5 inversions", "suffix": "majb5", "formula": "1-3-b5"},
         ],
+        # A second, orthogonal axis for the same "inversions" category: not
+        # which chord family, but which inversion POSITION — the fine-tune
+        # picker's Inversions column uses this instead of "families" above.
+        # See INVERSION_POSITION_TOKENS for how create_prompt_pool resolves
+        # these ids back into an inversion index.
+        "positions": [
+            {"id": "inversionsRoot", "label": "Root position"},
+            {"id": "inversionsFirst", "label": "First inversion"},
+            {"id": "inversionsSecond", "label": "Second inversion"},
+        ],
     }
 ]
 
 KNOWN_MODULE_IDS = frozenset(module["id"] for module in LEARNING_MODULES)
+
+# Resolves one of "inversions"' position ids (see the "inversions" module's
+# "positions" above) to the inversion index create_prompt_pool should
+# restrict its pool to, letting the fine-tune picker narrow Inversions down
+# to e.g. "just first inversion" instead of always all three.
+INVERSION_POSITION_TOKENS = {
+    "inversionsRoot": 0,
+    "inversionsFirst": 1,
+    "inversionsSecond": 2,
+}
 
 
 def normalize_midi_note(midi_note: int) -> int:
@@ -445,23 +469,38 @@ def create_prompt_pool(categories: list[str]) -> list[ChordPrompt]:
     """Build every possible chord prompt for the given categories.
 
     Args:
-        categories: Category ids to include, e.g. ["major", "inversions"].
-            Unknown/typo'd ids are dropped; if none remain (or the input is
+        categories: A mix of category ids (e.g. "major", "inversions" —
+            pulls in every family under that category), specific
+            ChordFamily ids (e.g. "augmented", "sus2", "dominant7Flat5" —
+            pulls in just that one quality, root position only), and/or
+            one of INVERSION_POSITION_TOKENS' ids (e.g. "inversionsFirst"
+            — like "inversions" but restricted to just that inversion
+            index) for finer-grained selection than a whole category — the
+            "fine-tune chord types" picker sends these. The kinds of id
+            share no names except "major"/"minor", which resolve as their
+            category (every family under it) rather than just that one
+            family, since a category match is checked first. Unknown/
+            typo'd ids are dropped; if none remain (or the input is
             empty), falls back to ["major"] so a prompt can always be
             produced.
 
     Returns:
-        One ChordPrompt per root/family (and, for "inversions", per
-        inversion) across the selected categories.
+        One ChordPrompt per root/family (and, for "inversions" or an
+        INVERSION_POSITION_TOKENS id, per inversion) across the selected
+        categories/families.
     """
-    # Drop unknown/typo'd category ids instead of silently returning an
-    # empty pool (which would crash random_prompt's random.choice); fall
-    # back to Major so the game can always produce a prompt.
-    selected = [category for category in categories if category in KNOWN_MODULE_IDS] or ["major"]
+    # Drop unknown/typo'd ids instead of silently returning an empty pool
+    # (which would crash random_prompt's random.choice); fall back to
+    # Major so the game can always produce a prompt.
+    selected = [
+        token
+        for token in categories
+        if token in KNOWN_MODULE_IDS or token in FAMILIES_BY_ID or token in INVERSION_POSITION_TOKENS
+    ] or ["major"]
     prompts: list[ChordPrompt] = []
 
-    for category in selected:
-        if category == "inversions":
+    for token in selected:
+        if token == "inversions" or token in INVERSION_POSITION_TOKENS:
             # Keep this in sync with LEARNING_MODULES' "inversions" entry
             # above — see its comment for why augmented/sus2/sus4 are
             # deliberately left out.
@@ -471,16 +510,29 @@ def create_prompt_pool(categories: list[str]) -> list[ChordPrompt]:
                 family_by_id("diminished"),
                 family_by_id("majorFlat5"),
             ]
+            # Plain "inversions" still covers all three positions; a
+            # specific INVERSION_POSITION_TOKENS id narrows the pool down
+            # to just that one (e.g. "always practice first inversion").
+            positions = (INVERSION_POSITION_TOKENS[token],) if token in INVERSION_POSITION_TOKENS else (0, 1, 2)
             for root_name in ROOTS:
                 for family in inversion_families:
-                    for inversion in (0, 1, 2):
+                    for inversion in positions:
                         prompts.append(build_prompt(root_name, family, category="inversions", inversion=inversion))
             continue
 
+        if token in KNOWN_MODULE_IDS:
+            for root_name in ROOTS:
+                for family in CHORD_FAMILIES:
+                    if family.category == token:
+                        prompts.append(build_prompt(root_name, family))
+            continue
+
+        # A specific ChordFamily id (the fine-tune picker) rather than a
+        # whole category — e.g. just "augmented" without also pulling in
+        # every other Major-category family.
+        family = FAMILIES_BY_ID[token]
         for root_name in ROOTS:
-            for family in CHORD_FAMILIES:
-                if family.category == category:
-                    prompts.append(build_prompt(root_name, family))
+            prompts.append(build_prompt(root_name, family))
 
     return prompts
 

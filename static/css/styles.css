@@ -6,6 +6,14 @@
  * kept only for its semantic danger/miss meaning (mirrors the red accent
  * in those same tools). Typography is a plain, bold system sans
  * throughout — no serif, no decorative display font.
+ *
+ * The one deliberate exception is the "candy" set below (teal, mustard,
+ * lavender, coral, sky, alongside wine): one fixed hue per chord category,
+ * used only for the Chord categories cards and their fine-tune subtypes
+ * (see .category[data-id] in this file) — mirrors the same six hues
+ * game/palette.js's CANDY_PALETTE uses for the arriving chord plaques, so
+ * a category's color identity is consistent between the setup screen and
+ * the game itself, instead of every category card looking alike.
  */
 :root {
   --paper: #ffffff;
@@ -21,6 +29,16 @@
   --wine: #7c2d3a;
   --wine-deep: #5c1f29;
   --wine-soft: #f2dadd;
+  --teal-deep: #1f5c4e;
+  --teal-soft: #d7ece7;
+  --mustard-deep: #8a6a12;
+  --mustard-soft: #f7ecc9;
+  --lavender-deep: #4a2f7c;
+  --lavender-soft: #e6def5;
+  --coral-deep: #a8431b;
+  --coral-soft: #fbe0d4;
+  --sky-deep: #1f4f7c;
+  --sky-soft: #d9e8f7;
   --forest: #3c6e58;
   --go-light: #8fd4a0;
   --go-light-deep: #5fae74;
@@ -167,10 +185,15 @@ h1 {
   color: var(--brown-deep);
 }
 
+/* A fixed 3-column grid for the 6 main categories, plain checkbox cards
+   (no icon, one shared accent color — see .category below) exactly like
+   every other checkbox/radio card on the page. Checking a category
+   doesn't touch this grid — it only opens that category's own section in
+   its row's drawer right below it (see .category-subtypes-drawer and
+   updateSubtypesDrawer() in app.js), so the cards themselves never
+   resize/reflow no matter what's selected. */
 .category-grid {
   display: grid;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(2, auto);
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
@@ -190,7 +213,7 @@ h1 {
 
 /* Same card-title size/weight as .option-text strong and .input-mode-card
    strong, so every checkbox/radio card in the page reads at one consistent
-   scale. */
+   scale — just the category name here, no subtitle. */
 .category span {
   font-size: 0.85rem;
   font-weight: 700;
@@ -204,7 +227,148 @@ h1 {
 .category input {
   width: 18px;
   height: 18px;
+  flex: none;
   accent-color: var(--brown);
+}
+
+/* One fixed accent per category, used only by that category's own drawer
+   section/chips below (see .subtype-section/.subtype-chip) — mirrors
+   game/palette.js's CANDY_PALETTE (see the :root comment at the top of
+   this file), so a narrowed-down chip still reads as belonging to its
+   category even though the category card itself is plain. */
+.subtype-section[data-category="major"] {
+  --cat-deep: var(--wine-deep);
+  --cat-soft: var(--wine-soft);
+}
+
+.subtype-section[data-category="minor"] {
+  --cat-deep: var(--sky-deep);
+  --cat-soft: var(--sky-soft);
+}
+
+.subtype-section[data-category="sevenths"] {
+  --cat-deep: var(--mustard-deep);
+  --cat-soft: var(--mustard-soft);
+}
+
+.subtype-section[data-category="suspensions"] {
+  --cat-deep: var(--lavender-deep);
+  --cat-soft: var(--lavender-soft);
+}
+
+.subtype-section[data-category="extensions"] {
+  --cat-deep: var(--coral-deep);
+  --cat-soft: var(--coral-soft);
+}
+
+.subtype-section[data-category="inversions"] {
+  --cat-deep: var(--teal-deep);
+  --cat-soft: var(--teal-soft);
+}
+
+/* One drawer per row of 3 category cards (see buildCategoryInputs() in
+   app.js), inserted as a grid item right after its row so it reads as
+   belonging to those specific categories, spanning the full grid width
+   but mirroring the same 3-column layout as the row above it. Purely a
+   layout grid — no border/background of its own — since each checked
+   category's .subtype-section (placed in the same column as its own
+   card, see updateSubtypesDrawer()'s inline grid-column) is its own
+   separate, self-bordered rectangle rather than one shared block. */
+.category-subtypes-drawer[hidden] {
+  /* [hidden] alone loses to this class's own "display: grid" below at
+     equal specificity, since this author rule outranks the UA
+     stylesheet's default [hidden] rule — so it needs restating here. */
+  display: none;
+}
+
+.category-subtypes-drawer {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: -2px 0 2px;
+}
+
+/* Each checked category's own rectangle — its own border in that
+   category's accent color, standing apart from its neighbors instead of
+   all three sharing one undivided block. */
+.subtype-section {
+  padding: 12px;
+  border: 1.5px solid var(--cat-deep, var(--line-soft));
+  border-radius: 8px;
+  background: var(--paper-card);
+}
+
+.subtype-section-title {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--cat-deep, var(--ink-soft));
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* A vertical column of chips, one per line — stacked under their
+   category's own header rather than wrapped into a wide horizontal flow,
+   to match the "one column per category" layout above. */
+.subtype-chips {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+/* Deliberately not another checkbox-in-a-box like .category: a solid
+   rounded pill with a small dot indicator, filled in with this category's
+   own color once checked — reads as a tag being toggled on/off rather
+   than a form field, closer to a filter chip than a checkbox list. */
+.subtype-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px 7px 11px;
+  cursor: pointer;
+  border: 1.5px solid var(--cat-deep, var(--line-soft));
+  border-radius: 999px;
+  background: var(--paper-card);
+  color: var(--cat-deep, var(--ink));
+  font-size: 0.78rem;
+  font-weight: 700;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.subtype-chip::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.4;
+  transition: opacity 120ms ease;
+}
+
+.subtype-chip:has(input:checked) {
+  background: var(--cat-deep, var(--brown));
+  color: var(--paper-card);
+}
+
+.subtype-chip:has(input:checked)::before {
+  opacity: 1;
+}
+
+/* The real checkbox stays for keyboard/screen-reader use, invisibly
+   covering the whole pill rather than rendering its own native box. */
+.subtype-chip input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+  opacity: 0;
 }
 
 .recognition-mode,
@@ -686,7 +850,17 @@ button.selected {
   margin-right: 6px;
 }
 
+/* Muted/"light" by default — only .is-ready (every required parameter
+   set, see updateStartReadiness() in app.js) switches Start to its bold
+   "go" green, so the button itself signals whether clicking it will
+   actually do anything yet. */
 .control-start {
+  color: var(--ink-soft);
+  border-color: var(--line);
+  background: var(--paper-chip);
+}
+
+.control-start.is-ready {
   color: var(--ink);
   border-color: var(--go-light-deep);
   background: var(--go-light);
@@ -704,7 +878,16 @@ button.selected {
   background: var(--brown);
 }
 
+/* Same muted-by-default pattern as Start: only .is-active (a run is
+   actually in progress, see updateStopReadiness() in app.js) switches
+   Stop to its bold "stop" red/pink. */
 .control-stop {
+  color: var(--ink-soft);
+  border-color: var(--line);
+  background: var(--paper-chip);
+}
+
+.control-stop.is-active {
   color: var(--ink);
   border-color: var(--stop-light-deep);
   background: var(--stop-light);

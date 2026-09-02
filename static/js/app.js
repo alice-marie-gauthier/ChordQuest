@@ -250,25 +250,170 @@ const noteNameToPitchClass = {
   B: 11
 };
 
+// Per-category fine-tune state: categoryId -> Set of option ids checked in
+// that category's own section of the subtypes drawer (see
+// updateSubtypesDrawer). For every category except Inversions these are
+// ChordFamily ids; for Inversions they're models/chords.py's
+// INVERSION_POSITION_TOKENS ids ("inversionsRoot" etc. — see
+// categoryFineTuneOptions), since narrowing Inversions down means picking
+// WHICH inversion position, not which chord family. A category only gets
+// an entry here once it's checked — and starts with every one of its
+// options in the Set (every chip checked), so the drawer reads as
+// "everything, uncheck what you don't want" rather than an empty picker
+// to build up from scratch (see buildCategoryInputs/the categoriesEl
+// "change" handler). Absent entirely for a category with no drawer at all
+// (nothing to narrow down) — selectedCategories() falls back to that
+// category's plain id only in that case.
+const fineTunedFamiliesByCategory = new Map();
+
+// categoryId -> { label, options: Array<{id, label}> } for every category
+// that has a fine-tune breakdown at all — populated by buildCategoryInputs
+// from /api/modules ("positions" for Inversions, "families" for every
+// other category — see buildCategoryInputs), and read by
+// updateSubtypesDrawer() to build each checked category's drawer section.
+const categoryFineTuneOptions = new Map();
+
+// categoryId -> which row of 3 cards it's in (0 or 1), and categoryId ->
+// which column within that row (0, 1 or 2) — both populated by
+// buildCategoryInputs. Together they're how updateSubtypesDrawer() places
+// a checked category's section in the same drawer, same column as its own
+// card, so its fine-tune chips read as a column directly under that
+// category rather than one shared block.
+const categoryRowIndex = new Map();
+const categoryColIndex = new Map();
+
+// One drawer per row of 3 category cards, in row order — (re)built fresh
+// by buildCategoryInputs each time (e.g. the offline FALLBACK_CATEGORIES
+// fallback), read and toggled by updateSubtypesDrawer().
+let categoryRowDrawers = [];
+
 /**
- * Render the chord category checkboxes.
- * @param {Array<[string, string]>} entries - [id, label] pairs; the first
- *   entry starts checked so a prompt can always be produced.
+ * Render the 6 main category cards — plain checkbox cards, no icon, one
+ * shared accent color like every other card on the page (see .category in
+ * styles.css) — plus one .category-subtypes-drawer inserted right after
+ * every row of 3, so a checked category's fine-tune chips always surface
+ * directly under its own row without the cards themselves ever moving.
+ * The first category starts checked so a prompt can always be produced.
+ * @param {Array<{id: string, label: string, families?: Array<{id: string, label: string}>, positions?: Array<{id: string, label: string}>}>|Array<[string, string]>} modules
+ *   Either full module objects from /api/modules — "positions" for
+ *   Inversions (which inversion index), "families" for every other
+ *   category (which chord quality) — or plain [id, label] pairs (the
+ *   offline FALLBACK_CATEGORIES shape — no fine-tune breakdown then).
  */
-function buildCategoryInputs(entries) {
+function buildCategoryInputs(modules) {
   categoriesEl.innerHTML = "";
-  entries.forEach(([id, label], index) => {
+  fineTunedFamiliesByCategory.clear();
+  categoryFineTuneOptions.clear();
+  categoryRowIndex.clear();
+  categoryColIndex.clear();
+  categoryRowDrawers = [];
+
+  const rowSize = 3;
+  modules.forEach((entry, index) => {
+    const isPlainPair = Array.isArray(entry);
+    const id = isPlainPair ? entry[0] : entry.id;
+    const label = isPlainPair ? entry[1] : entry.label;
+    const options = isPlainPair ? undefined : entry.positions || entry.families;
+    const checked = index === 0;
+    const rowIndex = Math.floor(index / rowSize);
+
     const item = document.createElement("label");
     item.className = "category";
-    item.innerHTML = `<input type="checkbox" value="${id}" ${index === 0 ? "checked" : ""} /> <span>${label}</span>`;
+    item.dataset.id = id;
+    item.innerHTML = `<input type="checkbox" value="${id}" ${checked ? "checked" : ""} /> <span>${label}</span>`;
     categoriesEl.appendChild(item);
+
+    categoryRowIndex.set(id, rowIndex);
+    categoryColIndex.set(id, index % rowSize);
+    if (Array.isArray(options) && options.length > 1) {
+      categoryFineTuneOptions.set(id, { label, options });
+      // Starts fully selected — every chip checked — so a checked
+      // category's drawer reads as "everything, uncheck what you don't
+      // want" rather than an empty picker you have to build up from
+      // scratch. Only matters here for the category that starts checked
+      // (index 0); the "change" handler below does the same for every
+      // other category the moment it's checked.
+      if (checked) {
+        fineTunedFamiliesByCategory.set(id, new Set(options.map((option) => option.id)));
+      }
+    }
+
+    // Close out this row with its own drawer once every 3rd card lands
+    // (or the very last card, in case a future category count isn't a
+    // clean multiple of 3).
+    if ((index + 1) % rowSize === 0 || index === modules.length - 1) {
+      const drawer = document.createElement("div");
+      drawer.className = "category-subtypes-drawer";
+      drawer.hidden = true;
+      categoriesEl.appendChild(drawer);
+      categoryRowDrawers.push(drawer);
+    }
+  });
+
+  updateSubtypesDrawer();
+}
+
+/**
+ * Rebuild every row's subtypes drawer from which main categories are
+ * currently checked: one .subtype-section per checked category that has a
+ * fine-tune breakdown (see categoryFineTuneOptions), placed in its own
+ * row and column (see categoryRowIndex/categoryColIndex — same grid
+ * position as its own card) and reflecting today's
+ * fineTunedFamiliesByCategory selection, if any. Hides a row's drawer
+ * entirely when nothing in that row has anything to show. Called once
+ * after buildCategoryInputs and again every time a main category checkbox
+ * changes.
+ */
+function updateSubtypesDrawer() {
+  categoryRowDrawers.forEach((drawer) => {
+    drawer.innerHTML = "";
+  });
+
+  const checkedIds = [...categoriesEl.querySelectorAll(".category > input:checked")].map((input) => input.value);
+  checkedIds.forEach((id) => {
+    const entry = categoryFineTuneOptions.get(id);
+    const drawer = categoryRowDrawers[categoryRowIndex.get(id)];
+    if (!entry || !drawer) {
+      return;
+    }
+
+    const section = document.createElement("div");
+    section.className = "subtype-section";
+    section.dataset.category = id;
+    // Same column as this category's own card (see .category-grid /
+    // .category-subtypes-drawer both being 3-column grids), so the chips
+    // read as a column directly under it.
+    section.style.gridColumn = String(categoryColIndex.get(id) + 1);
+
+    const title = document.createElement("span");
+    title.className = "subtype-section-title";
+    title.textContent = entry.label;
+    section.appendChild(title);
+
+    const chips = document.createElement("div");
+    chips.className = "subtype-chips";
+    const chosen = fineTunedFamiliesByCategory.get(id);
+    entry.options.forEach((option) => {
+      const chip = document.createElement("label");
+      chip.className = "subtype-chip";
+      const isChecked = chosen?.has(option.id) ?? false;
+      chip.innerHTML = `<input type="checkbox" value="${option.id}" ${isChecked ? "checked" : ""} /><span>${option.label}</span>`;
+      chips.appendChild(chip);
+    });
+    section.appendChild(chips);
+    drawer.appendChild(section);
+  });
+
+  categoryRowDrawers.forEach((drawer) => {
+    drawer.hidden = drawer.children.length === 0;
   });
 }
 
 /**
  * Fetch the chord categories/families from the backend and build the
- * category checkboxes and mastery-label lookup from them; falls back to
- * FALLBACK_CATEGORIES if the request fails.
+ * category grid (with its fine-tune drawer options) and the mastery-label
+ * lookup from them; falls back to FALLBACK_CATEGORIES (a plain category
+ * list, no fine-tune breakdown) if the request fails.
  * @returns {Promise<void>}
  */
 async function loadModules() {
@@ -282,7 +427,7 @@ async function loadModules() {
       throw new Error("empty modules response");
     }
 
-    buildCategoryInputs(modules.map((module) => [module.id, module.label]));
+    buildCategoryInputs(modules);
     modules.forEach((module) => {
       module.families.forEach((family) => {
         familyLabelByKey.set(`${module.id}:${family.id}`, `${module.label} · ${family.label}`);
@@ -295,13 +440,54 @@ async function loadModules() {
 }
 
 categoriesEl.addEventListener("change", (event) => {
-  const stillChecked = categoriesEl.querySelectorAll("input:checked").length > 0;
-  if (!stillChecked && event.target instanceof HTMLInputElement) {
-    // Keep the game always able to produce a prompt: never allow the last
-    // checked category to be unchecked.
-    event.target.checked = true;
-    statusEl.textContent = "Keep at least one category.";
+  abandonRunOnSetupChange();
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement)) {
+    return;
   }
+
+  if (input.closest(".subtype-chip")) {
+    // A fine-tune chip inside some category's drawer section — no "keep
+    // at least one checked" rule here: an empty set is the valid,
+    // expected "use the whole category" state (see
+    // fineTunedFamiliesByCategory).
+    const categoryId = input.closest(".subtype-section")?.dataset.category;
+    if (!categoryId) {
+      return;
+    }
+    let chosen = fineTunedFamiliesByCategory.get(categoryId);
+    if (!chosen) {
+      chosen = new Set();
+      fineTunedFamiliesByCategory.set(categoryId, chosen);
+    }
+    chosen[input.checked ? "add" : "delete"](input.value);
+    return;
+  }
+
+  // A main category checkbox. Keep the game always able to produce a
+  // prompt: never allow the last checked category to be unchecked.
+  const stillChecked = categoriesEl.querySelectorAll(".category > input:checked").length > 0;
+  if (!stillChecked) {
+    input.checked = true;
+    statusEl.textContent = "Keep at least one category.";
+    return;
+  }
+
+  if (input.checked) {
+    // Checking a category starts its drawer fully selected — every chip
+    // checked — so it reads as "everything, uncheck what you don't want"
+    // rather than an empty picker to build up from scratch.
+    const entry = categoryFineTuneOptions.get(input.value);
+    if (entry) {
+      fineTunedFamiliesByCategory.set(input.value, new Set(entry.options.map((option) => option.id)));
+    }
+  } else {
+    // Unchecking a category resets its fine-tune selection, so re-checking
+    // it later starts fresh (fully selected again) rather than remembering
+    // a stale narrowed pick.
+    fineTunedFamiliesByCategory.delete(input.value);
+  }
+  updateSubtypesDrawer();
 });
 
 /**
@@ -437,9 +623,11 @@ async function joinLeague(name, { silent = false } = {}) {
 }
 
 playerModeEl.addEventListener("change", () => {
+  abandonRunOnSetupChange();
   const mode = playerMode();
   updatePlayerJoinVisibility();
   localStorage.setItem(PLAYER_MODE_STORAGE_KEY, mode);
+  updateStartReadiness();
 
   if (mode === "solo") {
     activePlayer = null;
@@ -487,11 +675,27 @@ Object.entries(keyMap).forEach(([key, note]) => {
 });
 
 /**
- * Read which chord category checkboxes are currently checked.
- * @returns {string[]} The checked category ids, in DOM order.
+ * Read which chord categories/families are currently selected for random
+ * practice: for every checked main category, its own fine-tuned family ids
+ * (see fineTunedFamiliesByCategory — a category with a drawer always has
+ * an entry here the moment it's checked, starting with every chip
+ * selected, so this reflects whatever the player has since unchecked) if
+ * it has a drawer at all, otherwise the category id itself (a category
+ * with only one quality, nothing to narrow down).
+ * @returns {string[]} Category and/or ChordFamily ids understood by the
+ *   backend's create_prompt_pool.
  */
 function selectedCategories() {
-  return [...categoriesEl.querySelectorAll("input:checked")].map((input) => input.value);
+  const tokens = [];
+  categoriesEl.querySelectorAll(".category > input:checked").forEach((input) => {
+    const fineTuned = fineTunedFamiliesByCategory.get(input.value);
+    if (fineTuned) {
+      tokens.push(...fineTuned);
+    } else {
+      tokens.push(input.value);
+    }
+  });
+  return tokens;
 }
 
 /**
@@ -596,6 +800,7 @@ function parseCsvChordLines(text) {
 
 /** Reset the progression panel to its empty state (no song loaded, random practice). */
 function clearProgression() {
+  abandonRunOnSetupChange();
   customProgression = [];
   customIndex = -1;
   customProgressionTitle = "";
@@ -653,6 +858,7 @@ async function handleProgressionFile() {
     return;
   }
 
+  abandonRunOnSetupChange();
   progressionStatusEl.textContent = "Reading file…";
   progressionStatusEl.classList.remove("is-error");
 
@@ -753,6 +959,7 @@ async function loadSelectedLibrarySong() {
     return;
   }
 
+  abandonRunOnSetupChange();
   try {
     const response = await fetch(`/api/library/${source}/${encodeURIComponent(songId)}`);
     if (!response.ok) {
@@ -1636,17 +1843,59 @@ function releaseWakeLock() {
 }
 
 /**
- * Start a new run: validates an input device is ready, resets
- * score/pause state, starts the scene, and fetches the first prompt.
+ * Check whether every parameter required to start a run has been chosen.
+ * @returns {string|null} A human-readable description of the first thing
+ *   still missing, or null if everything required is set.
+ */
+function missingStartRequirement() {
+  if (!playerModeEl.querySelector("input:checked")) {
+    return "Choose Practice solo or Join the Chord League first.";
+  }
+  if (!progressionModeEl.querySelector("input:checked")) {
+    return "Choose Random practice or Custom progression first.";
+  }
+  if (!inputMode) {
+    return "Choose an input device first.";
+  }
+  if (inputMode === "midi" && !midiReady) {
+    return "No MIDI input detected yet.";
+  }
+  return null;
+}
+
+/**
+ * Refresh the Start button's ready/not-ready styling (see .is-ready in
+ * styles.css — dark green only once every required parameter above is
+ * set, a muted look otherwise). Called after every change that could
+ * affect readiness (player mode, progression mode, input device).
+ * Deliberately doesn't touch the status line itself — every call site
+ * that changes readiness already sets its own, more specific status
+ * message (e.g. "Ready: Yamaha P-225."); startGame() is the one place
+ * that surfaces missingStartRequirement()'s own message, when a click
+ * needs to be refused.
+ */
+function updateStartReadiness() {
+  startButton.classList.toggle("is-ready", !missingStartRequirement());
+}
+
+/** Refresh the Stop button's active/inactive styling to match whether a run is actually in progress. */
+function updateStopReadiness() {
+  stopButton.classList.toggle("is-active", gameRunning);
+}
+
+/**
+ * Start a new run: validates every required parameter is set (see
+ * missingStartRequirement), resets score/pause state, reveals the
+ * game/HUD/keys/mastery/leaderboard area (hidden until now — see the
+ * play-area comment below), starts the scene, and fetches the first
+ * prompt.
  * @returns {Promise<void>}
  */
 async function startGame() {
-  if (!inputMode) {
-    statusEl.textContent = "Choose an input first.";
-    return;
-  }
-  if (inputMode === "midi" && !midiReady) {
-    statusEl.textContent = "No MIDI input detected.";
+  const missing = missingStartRequirement();
+  if (missing) {
+    statusEl.textContent = missing;
+    updateStartReadiness();
     return;
   }
 
@@ -1658,13 +1907,23 @@ async function startGame() {
   setPauseButtonState(false);
   pauseButton.disabled = false;
   gameRunning = true;
+  // Start game stays unusable — same greyed-out look as any other
+  // disabled button — for the entire run, Pause/Resume included (pause
+  // doesn't clear gameRunning); only Stop (see stopGame) hands it back.
+  startButton.disabled = true;
   // Always start a custom progression from its first chord, even if a
   // previous run was stopped partway through.
   customIndex = -1;
+  // Everything required is set at this point (missingStartRequirement
+  // just returned null), so this is the one moment the play area — the
+  // arrival track included — actually appears; it stays hidden through
+  // every setup step before this, with no placeholder text of its own.
+  playAreaEl.hidden = false;
   scene.start();
   statusEl.textContent = "Run started!";
   updateHud();
   requestWakeLock();
+  updateStopReadiness();
   await fetchPrompt();
 }
 
@@ -1675,30 +1934,54 @@ function stopGame() {
   paused = false;
   setPauseButtonState(false);
   pauseButton.disabled = true;
+  startButton.disabled = false;
   clearActiveNotes();
   scene.stop();
   statusEl.textContent = "Game stopped.";
   updateHud();
   releaseWakeLock();
+  updateStopReadiness();
+  updateStartReadiness();
+}
+
+/**
+ * If a run is currently active (running or paused — see stopGame, called
+ * either way), changing a setup parameter invalidates it: this bails back
+ * to the pre-start state exactly like a fresh page load — stops the run,
+ * re-hides the play area (arrival track included), and hands the Start
+ * button back (re-enabled, re-colored by updateStartReadiness — every
+ * call site below already calls that after its own change). A no-op
+ * while no run is active, so it's safe to call unconditionally from every
+ * setup control's change handler.
+ */
+function abandonRunOnSetupChange() {
+  if (!gameRunning) {
+    return;
+  }
+  stopGame();
+  playAreaEl.hidden = true;
 }
 
 /**
  * Switch the active input device and update the two input-mode cards'
- * selected styling to match. Also reveals the game/HUD/keys/mastery/
- * leaderboard area below, which stays hidden with no placeholder text
- * until this — the last un-set parameter — happens. The on-screen piano
- * keys only make sense as an input surface in "Computer keyboard" mode —
- * with a real MIDI keyboard plugged in they'd just be redundant — so they
- * (and their "Keyboard: A W S..." caption) are shown/hidden to match.
+ * selected styling to match, then refresh Start-button readiness (see
+ * updateStartReadiness) since the input device is one of its
+ * requirements. The on-screen piano keys only make sense as an input
+ * surface in "Computer keyboard" mode — with a real MIDI keyboard plugged
+ * in they'd just be redundant — so they (and their "Keyboard: A W S..."
+ * caption) are shown/hidden to match; this has no visible effect until
+ * the play area itself is revealed, which only happens once Start game
+ * actually runs (see startGame).
  * @param {"midi"|"keyboard"} mode - The input mode to switch to.
  */
 function setInputMode(mode) {
+  abandonRunOnSetupChange();
   inputMode = mode;
   midiButton.classList.toggle("selected", mode === "midi");
   keyboardButton.classList.toggle("selected", mode === "keyboard");
-  playAreaEl.hidden = false;
   keysEl.hidden = mode !== "keyboard";
   keyboardGuideEl.hidden = mode !== "keyboard";
+  updateStartReadiness();
 }
 
 /**
@@ -1773,6 +2056,7 @@ function updateMidiStatus() {
     statusEl.textContent = "Connect (USB or Bluetooth) and power on the keyboard, then retry.";
     midiButtonLabel.textContent = "Retry MIDI";
     clearActiveNotes();
+    updateStartReadiness();
     return;
   }
 
@@ -1781,6 +2065,7 @@ function updateMidiStatus() {
   inputStatusEl.textContent = `${inputs.length} input${inputs.length === 1 ? "" : "s"} connected`;
   statusEl.textContent = `Ready: ${names}.`;
   midiButtonLabel.textContent = "Refresh MIDI";
+  updateStartReadiness();
 }
 
 /**
@@ -1797,6 +2082,7 @@ async function enableMidi() {
   if (!navigator.requestMIDIAccess) {
     statusEl.textContent = "Not supported. Try Chrome, Edge, or Safari 17+.";
     inputStatusEl.textContent = "Unsupported browser";
+    updateStartReadiness();
     return;
   }
 
@@ -1812,6 +2098,7 @@ async function enableMidi() {
     const denied = error?.name === "SecurityError" || error?.name === "NotAllowedError";
     inputStatusEl.textContent = denied ? "Permission denied" : "Connection failed";
     statusEl.textContent = denied ? "Allow MIDI access, then retry." : "Check the connection and retry.";
+    updateStartReadiness();
   }
 }
 
@@ -1823,6 +2110,7 @@ function enableKeyboard() {
   createKeyboardAudio();
   inputStatusEl.textContent = "Keyboard active";
   statusEl.textContent = "Keyboard ready.";
+  updateStartReadiness();
 }
 
 window.addEventListener("keydown", (event) => {
@@ -1893,6 +2181,7 @@ progressionClearButton.addEventListener("click", clearProgression);
 librarySourceSelect.addEventListener("change", loadLibrarySongOptions);
 libraryLoadButton.addEventListener("click", loadSelectedLibrarySong);
 progressionModeEl.addEventListener("change", () => {
+  abandonRunOnSetupChange();
   progressionPracticeMode = progressionModeEl.querySelector("input:checked")?.value || "random";
   // Exactly one of the two dropdown areas is shown at a time: the
   // upload/library config for "Custom progression", or Chord
@@ -1900,6 +2189,7 @@ progressionModeEl.addEventListener("change", () => {
   progressionConfigEl.hidden = progressionPracticeMode !== "custom";
   randomPracticeConfigEl.hidden = progressionPracticeMode !== "random";
   statusEl.textContent = progressionPracticeMode === "custom" ? "Custom progression selected." : "Random practice selected.";
+  updateStartReadiness();
 });
 
 startButton.addEventListener("click", startGame);
@@ -1933,6 +2223,7 @@ resetStatsButton.addEventListener("click", async () => {
   }
 });
 recognitionModeEl.addEventListener("change", () => {
+  abandonRunOnSetupChange();
   clearActiveNotes();
   chordEl.textContent = "Listening";
   statusEl.textContent = recognitionMode() === "arpeggio" ? "Arpeggio mode." : "Held chord mode.";
@@ -2003,4 +2294,6 @@ loadModules();
 loadStats();
 loadLeaderboard();
 loadLibrarySongOptions();
+updateStartReadiness();
+updateStopReadiness();
 scene.begin();

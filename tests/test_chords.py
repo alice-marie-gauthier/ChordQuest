@@ -2,6 +2,7 @@ import unittest
 
 from models.chords import (
     CHORD_FAMILIES,
+    ROOTS,
     build_prompt,
     create_prompt_pool,
     family_by_id,
@@ -183,6 +184,42 @@ class ChordRecognitionTests(unittest.TestCase):
                 self.assertIsNotNone(chord, f"{family_id} inversion {inversion} was not recognized at all")
                 self.assertEqual(chord["family_id"], family_id, f"{family_id} inversion {inversion}")
                 self.assertEqual(chord["inversion"], inversion, f"{family_id} inversion {inversion}")
+
+    def test_create_prompt_pool_accepts_a_specific_family_id(self):
+        # The "fine-tune chord types" picker sends individual ChordFamily
+        # ids (e.g. "augmented") instead of a whole category, to narrow
+        # practice down to just that one quality.
+        prompts = create_prompt_pool(["augmented"])
+        self.assertTrue(prompts)
+        self.assertTrue(all(prompt["family_id"] == "augmented" for prompt in prompts))
+        self.assertEqual(len(prompts), len(ROOTS))
+
+    def test_create_prompt_pool_mixes_categories_and_family_ids(self):
+        prompts = create_prompt_pool(["minor", "dominant7Flat5"])
+        family_ids = {prompt["family_id"] for prompt in prompts}
+        # "minor" (a category) pulls in both minor and diminished; the
+        # explicit family id adds just that one seventh-chord quality.
+        self.assertEqual(family_ids, {"minor", "diminished", "dominant7Flat5"})
+
+    def test_create_prompt_pool_narrows_inversions_to_one_position(self):
+        # The Inversions fine-tune drawer sends one of
+        # INVERSION_POSITION_TOKENS' ids instead of the whole "inversions"
+        # category, to practice e.g. only first inversion.
+        prompts = create_prompt_pool(["inversionsFirst"])
+        self.assertTrue(prompts)
+        self.assertTrue(all(prompt["category"] == "inversions" for prompt in prompts))
+        self.assertTrue(all(prompt["inversion"] == 1 for prompt in prompts))
+        family_ids = {prompt["family_id"] for prompt in prompts}
+        self.assertEqual(family_ids, {"major", "minor", "diminished", "majorFlat5"})
+        self.assertEqual(len(prompts), len(ROOTS) * 4)
+
+    def test_create_prompt_pool_mixes_inversion_positions_with_other_tokens(self):
+        prompts = create_prompt_pool(["major", "inversionsSecond"])
+        plain_major = [p for p in prompts if p["category"] != "inversions"]
+        inversions = [p for p in prompts if p["category"] == "inversions"]
+        self.assertTrue(plain_major)
+        self.assertTrue(inversions)
+        self.assertTrue(all(p["inversion"] == 2 for p in inversions))
 
     def test_inversion_prompt_symbol_uses_slash_chord_notation(self):
         # Matches how recognize_chord reports the same voicing once it's

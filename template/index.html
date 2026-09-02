@@ -155,8 +155,15 @@
               </span>
               Chord categories
             </span>
+            <!-- Populated by buildCategoryInputs() in app.js: the 6 main
+                 .category cards, plus one .category-subtypes-drawer
+                 inserted right after each row of 3 — checking a category
+                 opens (or closes) its own section in its row's drawer, so
+                 the cards themselves never move — see
+                 updateSubtypesDrawer(). -->
             <div class="category-grid" id="categories"></div>
           </div>
+
           <div class="recognition-mode" id="recognitionMode">
             <span>
               <span class="heading-icon" aria-hidden="true">
