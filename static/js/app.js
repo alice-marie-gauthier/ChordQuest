@@ -35,25 +35,42 @@ const FALLBACK_CATEGORIES = [
 const activeNotes = new Set();
 const activeNoteOrder = [];
 const arpeggioNotes = new Map();
+// "Held" mode recognition works off this rather than activeNotes directly:
+// it accumulates every note pressed since the last time all keys were
+// released, so releasing one note slightly early (very common on real
+// hardware — fingers rarely lift in perfect unison) doesn't drop a
+// chord that genuinely was played together. Cleared whenever activeNotes
+// goes back to empty, so it never bleeds into the next, unrelated attempt.
+const heldPeakNotes = new Set();
+// Progressive wrong-chord penalty (see recognize()'s wrong-chord branch):
+// each genuinely new wrong attempt on the current prompt costs more than
+// the last. wrongAttemptStreak resets every new prompt (fetchPrompt());
+// lastWrongSignature is what makes an attempt "new" — it only advances the
+// streak when the played notes actually change, so holding one wrong
+// chord doesn't rack up penalties every ~180ms just for sitting there.
+const WRONG_CHORD_PENALTY_STEP = 10;
+let wrongAttemptStreak = 0;
+let lastWrongSignature = null;
 const categoriesEl = document.querySelector("#categories");
 const recognitionModeEl = document.querySelector("#recognitionMode");
 const playAreaEl = document.querySelector("#playArea");
 const notesEl = document.querySelector("#notes");
 const chordEl = document.querySelector("#chord");
 const keysEl = document.querySelector("#keys");
+const keyboardGuideEl = document.querySelector("#keyboardGuide");
 const statusEl = document.querySelector("#status");
-const targetEl = document.querySelector("#target");
-const arrivalChordEl = document.querySelector("#arrivalChord");
 const arrivalMeterEl = document.querySelector("#arrivalMeter");
-const formulaEl = document.querySelector("#formula");
 const scoreEl = document.querySelector("#score");
 const metaEl = document.querySelector("#meta");
+const bestScoreEl = document.querySelector("#bestScore");
 const startButton = document.querySelector("#startButton");
 const pauseButton = document.querySelector("#pauseButton");
 const stopButton = document.querySelector("#stopButton");
 const midiButton = document.querySelector("#midiButton");
 const midiButtonLabel = document.querySelector("#midiButtonLabel");
 const keyboardButton = document.querySelector("#keyboardButton");
+const micButton = document.querySelector("#micButton");
+const micButtonLabel = document.querySelector("#micButtonLabel");
 const inputStatusEl = document.querySelector("#inputStatus");
 const speedSlider = document.querySelector("#speedSlider");
 const speedValueEl = document.querySelector("#speedValue");
@@ -108,11 +125,22 @@ let resolving = false;
 let paused = false;
 let score = 0;
 let speed = Number(speedSlider.value);
+// Level rises with the current run's score — see levelForScore() — and
+// adds a proportional bonus on top of the chosen Speed slider value (see
+// effectiveSpeed()), so a longer streak gets progressively harder to keep
+// up with instead of staying at one flat pace all run.
+let level = 1;
+// The highest score reached in any single run on this device — not
+// cumulative across runs, just the peak, since a miss resets `score`
+// itself back to 0 (see missChord()). Persisted so it survives a reload.
+const BEST_SCORE_STORAGE_KEY = "chordquest_best_score";
+let bestScore = Number(localStorage.getItem(BEST_SCORE_STORAGE_KEY)) || 0;
 let lastRecognitionAt = 0;
 let recognitionTimer = null;
 let midiAccess = null;
 let inputMode = null;
 let midiReady = false;
+let micReady = false;
 let keyboardAudioContext = null;
 let keyboardMasterGain = null;
 let lastWrongSoundAt = 0;
@@ -462,29 +490,18 @@ function sameRoot(left, right) {
   return noteNameToPitchClass[left] === noteNameToPitchClass[right];
 }
 
-/** Refresh the target-chord HUD (symbol, formula) from the current prompt, and re-render the notes line. */
-function renderTargetPrompt() {
-  if (!targetPrompt) {
-    targetEl.textContent = "Select and start";
-    arrivalChordEl.textContent = "Waiting";
-    formulaEl.textContent = "";
-    return;
-  }
-
-  targetEl.textContent = targetPrompt.symbol;
-  arrivalChordEl.textContent = targetPrompt.symbol;
-  formulaEl.textContent = targetPrompt.formula ? `Formula ${targetPrompt.formula}` : "";
-  renderNotes();
-}
-
 /**
  * Advance to the next prompt: the next chord in the uploaded progression
  * (looping back to the start when it finishes) if "Custom progression" is
  * selected and loaded, otherwise a new random chord from the selected
- * categories.
+ * categories. Also resets the wrong-attempt penalty streak, since it's
+ * scoped to a single prompt (see WRONG_CHORD_PENALTY_STEP).
  * @returns {Promise<void>}
  */
 async function fetchPrompt() {
+  wrongAttemptStreak = 0;
+  lastWrongSignature = null;
+
   if (progressionPracticeMode === "custom" && customProgression.length) {
     const wasLast = customIndex === customProgression.length - 1;
     customIndex = (customIndex + 1) % customProgression.length;
@@ -493,7 +510,7 @@ async function fetchPrompt() {
     }
     targetPrompt = customProgression[customIndex];
     promptShownAt = performance.now();
-    renderTargetPrompt();
+    renderNotes();
     return;
   }
 
@@ -503,20 +520,26 @@ async function fetchPrompt() {
   const data = await response.json();
   targetPrompt = data.prompt;
   promptShownAt = performance.now();
-  renderTargetPrompt();
+  renderNotes();
 }
 
 /**
  * Read a raw CSV file's text into a flat list of candidate chord tokens:
- * one per non-empty line, taking only the first comma-separated column
- * and stripping surrounding quotes/whitespace. Not a full CSV parser —
- * deliberately simple since the expected format is a single "chord" column.
+ * one per non-empty, non-comment line, taking only the first
+ * comma-separated column and stripping surrounding quotes/whitespace. Not
+ * a full CSV parser — deliberately simple since the expected format is a
+ * single "chord" column. Lines starting with "#" are skipped entirely
+ * (after trimming), so the downloadable template
+ * (static/templates/chord-progression-template.csv) can carry a
+ * human-readable notation cheat-sheet as comments without those lines
+ * being mistaken for chords.
  * @param {string} text - Raw file contents.
  * @returns {string[]} Non-empty candidate chord tokens, in file order.
  */
 function parseCsvChordLines(text) {
   return text
     .split(/\r?\n/)
+    .filter((line) => !line.trim().startsWith("#"))
     .map((line) => line.split(",")[0].replace(/^["']|["']$/g, "").trim())
     .filter(Boolean);
 }
@@ -749,7 +772,20 @@ async function recognize(notes) {
     }
 
     playWrongChordSound();
-    statusEl.textContent = "Try again before it arrives.";
+    // Only a genuinely new set of notes counts as a new wrong attempt —
+    // otherwise just holding the same wrong chord down would keep
+    // re-charging the penalty every ~180ms for no additional mistake.
+    const signature = [...notes].sort((a, b) => a - b).join(",");
+    if (signature !== lastWrongSignature) {
+      lastWrongSignature = signature;
+      wrongAttemptStreak += 1;
+      const penalty = wrongAttemptStreak * WRONG_CHORD_PENALTY_STEP;
+      score = Math.max(0, score - penalty);
+      updateHud();
+      statusEl.textContent = `Wrong chord (-${penalty}). Try again before it arrives.`;
+    } else {
+      statusEl.textContent = "Try again before it arrives.";
+    }
   }
 }
 
@@ -759,11 +795,13 @@ async function recognize(notes) {
  * recognize() call once at least 3 notes are in play.
  */
 function renderNotes() {
-  const recognitionNotes =
-    recognitionMode() === "arpeggio"
-      ? [...arpeggioNotes.keys()]
-      : activeNoteOrder.filter((note) => activeNotes.has(note));
-  const displayNotes = [...recognitionNotes].sort((a, b) => a - b);
+  const currentlyHeld = activeNoteOrder.filter((note) => activeNotes.has(note));
+  // Held mode evaluates heldPeakNotes (everything pressed since the last
+  // full release) rather than currentlyHeld, so a note released a beat
+  // early doesn't drop an otherwise-correct plaqué chord — see
+  // heldPeakNotes' declaration for the rationale.
+  const recognitionNotes = recognitionMode() === "arpeggio" ? [...arpeggioNotes.keys()] : [...heldPeakNotes];
+  const displayNotes = [...currentlyHeld].sort((a, b) => a - b);
   notesEl.textContent = `Notes: ${notesText(displayNotes)}`;
 
   document.querySelectorAll("[data-note]").forEach((button) => {
@@ -783,7 +821,8 @@ function renderNotes() {
 
   // Debounce recognition briefly to allow multiple near-simultaneous
   // MIDI note-on messages to arrive (many keyboards send notes slightly
-  // staggered). This helps capture all 4 notes for seventh chords.
+  // staggered, and fingers rarely land in perfect unison). This helps
+  // capture all 4 notes for seventh chords.
   if (recognitionTimer) {
     clearTimeout(recognitionTimer);
   }
@@ -791,7 +830,7 @@ function renderNotes() {
   recognitionTimer = setTimeout(() => {
     recognitionTimer = null;
     recognize(notesToRecognize);
-  }, 50);
+  }, 80);
 }
 
 /**
@@ -1055,6 +1094,8 @@ function noteOn(note, playSound = false) {
     pruneArpeggioNotes();
     arpeggioNotes.set(note, performance.now());
     scheduleArpeggioReset();
+  } else {
+    heldPeakNotes.add(note);
   }
   if (playSound) {
     startKeyboardTone(note);
@@ -1064,7 +1105,9 @@ function noteOn(note, playSound = false) {
 
 /**
  * Register a note as released: stops tracking it, stops its tone, and
- * re-renders the notes/recognition UI.
+ * re-renders the notes/recognition UI. heldPeakNotes is deliberately left
+ * alone here (see its declaration) unless this was the very last held
+ * note, in which case it's reset for the next attempt.
  * @param {number} note - MIDI note number.
  */
 function noteOff(note) {
@@ -1072,6 +1115,12 @@ function noteOff(note) {
   const orderIndex = activeNoteOrder.indexOf(note);
   if (orderIndex !== -1) {
     activeNoteOrder.splice(orderIndex, 1);
+  }
+  if (activeNotes.size === 0) {
+    heldPeakNotes.clear();
+    // Hands fully lifted: the next chord (even a repeat of the same wrong
+    // one) is a genuinely new attempt, so it should be penalized again.
+    lastWrongSignature = null;
   }
   stopKeyboardTone(note);
   renderNotes();
@@ -1086,6 +1135,7 @@ function clearActiveNotes() {
   activeNotes.clear();
   activeNoteOrder.length = 0;
   arpeggioNotes.clear();
+  heldPeakNotes.clear();
   if (arpeggioResetTimer) {
     window.clearTimeout(arpeggioResetTimer);
     arpeggioResetTimer = null;
@@ -1363,7 +1413,7 @@ async function loadLeaderboard() {
  */
 function correctAnswer() {
   resolving = true;
-  const pointsEarned = Math.round(100 * speed);
+  const pointsEarned = Math.round(100 * effectiveSpeed());
   score += pointsEarned;
   statusEl.textContent = "Correct! Clean jump.";
   updateHud();
@@ -1380,10 +1430,12 @@ function correctAnswer() {
 
 /**
  * Handle the obstacle reaching the runner (called via the scene's onMiss
- * hook): play the game-over cue, report the attempt, then advance to the
- * next prompt after a short delay. A no-op if already resolving, paused,
- * or the game isn't running (defense in depth; the scene shouldn't call
- * this in those states).
+ * hook): "game over" — report the attempt, reset the run's score to 0 (the
+ * peak was already captured into bestScore by updateHud(), so it isn't
+ * lost), then advance to the next prompt after a short delay. There's
+ * still no life limit, so the run itself keeps going. A no-op if already
+ * resolving, paused, or the game isn't running (defense in depth; the
+ * scene shouldn't call this in those states).
  */
 function missChord() {
   if (resolving || !gameRunning || paused) {
@@ -1395,9 +1447,10 @@ function missChord() {
   // status text and getting the next prompt.
   resolving = true;
   playGameOverSound();
-  statusEl.textContent = "Missed. Try again.";
-  updateHud();
   recordAttempt(false);
+  score = 0;
+  statusEl.textContent = "Game over — score reset. Try again.";
+  updateHud();
 
   window.setTimeout(async () => {
     scene.nextRound();
@@ -1406,11 +1459,57 @@ function missChord() {
   }, 700);
 }
 
-/** Refresh the score/speed HUD text from current state. */
+// Score needed to REACH level n (n >= 1) is 250 * (n-1) * n: 0, 500, 1500,
+// 3000, 5000, ... — a gap that itself grows by 500 each level, so leveling
+// up keeps demanding a bigger streak rather than trickling by every round.
+const LEVEL_SCORE_UNIT = 250;
+// How much extra speed each level above 1 adds on top of the chosen Speed
+// slider value (see effectiveSpeed()). Deliberately not capped at the
+// slider's own 7 max — the whole point of leveling up is that a long run
+// keeps getting harder, past whatever the slider alone could reach.
+const LEVEL_SPEED_BONUS = 0.4;
+
+/**
+ * Compute the current level from a score, per LEVEL_SCORE_UNIT's
+ * thresholds (500, 1500, 3000, 5000, ...).
+ * @param {number} currentScore - The score to evaluate.
+ * @returns {number} 1 or higher.
+ */
+function levelForScore(currentScore) {
+  let candidateLevel = 1;
+  while (LEVEL_SCORE_UNIT * candidateLevel * (candidateLevel + 1) <= currentScore) {
+    candidateLevel += 1;
+  }
+  return candidateLevel;
+}
+
+/**
+ * The Speed slider's value plus the current level's bonus — this is what
+ * actually drives the obstacle/parallax pace and the points formula, while
+ * the slider itself keeps showing the player's raw chosen value.
+ * @returns {number}
+ */
+function effectiveSpeed() {
+  return speed + (level - 1) * LEVEL_SPEED_BONUS;
+}
+
+/**
+ * Refresh the score/speed/level/best-score HUD text from current state,
+ * updating (and persisting) bestScore first if the current run just set a
+ * new high — called after every score change, so the peak is captured
+ * before missChord() can reset `score` back to 0.
+ */
 function updateHud() {
+  level = levelForScore(score);
   scoreEl.textContent = `${score} pts`;
-  metaEl.textContent = `Speed ${speed.toFixed(1)}`;
+  metaEl.textContent = `Level ${level}`;
   speedValueEl.textContent = speed.toFixed(1);
+
+  if (score > bestScore) {
+    bestScore = score;
+    localStorage.setItem(BEST_SCORE_STORAGE_KEY, String(bestScore));
+  }
+  bestScoreEl.textContent = `${bestScore} pts`;
 }
 
 /** Read the speed slider into `speed` and refresh the HUD. */
@@ -1442,6 +1541,48 @@ function togglePause() {
   paused = !paused;
   setPauseButtonState(paused);
   statusEl.textContent = paused ? "Paused." : "Resumed.";
+  if (paused) {
+    releaseWakeLock();
+  } else {
+    requestWakeLock();
+  }
+}
+
+// Holds the active Screen Wake Lock sentinel (see requestWakeLock()) while
+// a run is active, so the device doesn't dim/sleep mid-song and cut MIDI
+// input or the canvas animation. null whenever no lock is held — either
+// because nothing requested one yet, the browser doesn't support the API
+// (Safari before iOS 16.4, most non-Chromium desktop browsers as of this
+// writing), or the OS/browser revoked it (e.g. the tab was hidden).
+let wakeLockSentinel = null;
+
+/**
+ * Request a screen wake lock for the duration of an active run. Silently
+ * does nothing if the Wake Lock API isn't supported or permission is
+ * denied — gameplay works exactly the same either way, the device might
+ * just dim/sleep on its own timeout.
+ * @returns {Promise<void>}
+ */
+async function requestWakeLock() {
+  if (!("wakeLock" in navigator)) {
+    return;
+  }
+  try {
+    wakeLockSentinel = await navigator.wakeLock.request("screen");
+    wakeLockSentinel.addEventListener("release", () => {
+      wakeLockSentinel = null;
+    });
+  } catch (error) {
+    wakeLockSentinel = null;
+  }
+}
+
+/** Release the screen wake lock, if one is currently held. */
+function releaseWakeLock() {
+  if (wakeLockSentinel) {
+    wakeLockSentinel.release().catch(() => {});
+    wakeLockSentinel = null;
+  }
 }
 
 /**
@@ -1456,6 +1597,10 @@ async function startGame() {
   }
   if (inputMode === "midi" && !midiReady) {
     statusEl.textContent = "No MIDI input detected.";
+    return;
+  }
+  if (inputMode === "microphone" && !micReady) {
+    statusEl.textContent = "Microphone not ready yet.";
     return;
   }
 
@@ -1473,6 +1618,7 @@ async function startGame() {
   scene.start();
   statusEl.textContent = "Run started!";
   updateHud();
+  requestWakeLock();
   await fetchPrompt();
 }
 
@@ -1487,34 +1633,52 @@ function stopGame() {
   scene.stop();
   statusEl.textContent = "Game stopped.";
   updateHud();
+  releaseWakeLock();
 }
 
 /**
- * Switch the active input device and update the two input-mode cards'
+ * Switch the active input device and update the three input-mode cards'
  * selected styling to match. Also reveals the game/HUD/keys/mastery/
  * leaderboard area below, which stays hidden with no placeholder text
- * until this — the last un-set parameter — happens.
- * @param {"midi"|"keyboard"} mode - The input mode to switch to.
+ * until this — the last un-set parameter — happens. The on-screen piano
+ * keys only make sense as an input surface in "Computer keyboard" mode —
+ * with a real MIDI keyboard plugged in (or a microphone) they'd just be
+ * redundant — so they (and their "Keyboard: A W S..." caption) are
+ * shown/hidden to match. Leaving microphone mode also stops the mic
+ * stream/analysis loop (see stopMicrophone()) so it doesn't keep
+ * listening — and showing the browser's "mic in use" indicator — in the
+ * background.
+ * @param {"midi"|"keyboard"|"microphone"} mode - The input mode to switch to.
  */
 function setInputMode(mode) {
+  if (inputMode === "microphone" && mode !== "microphone") {
+    stopMicrophone();
+  }
   inputMode = mode;
   midiButton.classList.toggle("selected", mode === "midi");
   keyboardButton.classList.toggle("selected", mode === "keyboard");
+  micButton.classList.toggle("selected", mode === "microphone");
   playAreaEl.hidden = false;
+  keysEl.hidden = mode !== "keyboard";
+  keyboardGuideEl.hidden = mode !== "keyboard";
 }
 
 /**
- * Get a human-readable name for a Web MIDI input device.
+ * Get a human-readable name for a Web MIDI input device. The Web MIDI API
+ * itself doesn't distinguish USB from Bluetooth — a Bluetooth MIDI
+ * keyboard that's already paired at the OS level (e.g. via Settings, or a
+ * companion app like Yamaha Smart Pianist) shows up here exactly like a
+ * USB one, no separate integration needed.
  * @param {MIDIInput} input - A Web MIDI API input device.
  * @returns {string} The device's name, manufacturer, or a generic fallback.
  */
 function midiInputName(input) {
-  return input.name || input.manufacturer || "USB MIDI device";
+  return input.name || input.manufacturer || "MIDI device";
 }
 
 /**
  * Handle a raw Web MIDI message: translate note-on/note-off events into
- * noteOn()/noteOff() calls. Ignored unless USB MIDI is the active input mode.
+ * noteOn()/noteOff() calls. Ignored unless MIDI is the active input mode.
  * @param {MIDIMessageEvent} event - The incoming MIDI message.
  */
 function handleMidiMessage(event) {
@@ -1535,7 +1699,8 @@ function handleMidiMessage(event) {
 }
 
 /**
- * Wire handleMidiMessage onto every currently connected MIDI input.
+ * Wire handleMidiMessage onto every currently connected MIDI input (USB or
+ * Bluetooth alike — see midiInputName).
  * @returns {MIDIInput[]} The connected inputs (empty if MIDI access hasn't
  *   been granted yet).
  */
@@ -1553,10 +1718,9 @@ function connectMidiInputs() {
 }
 
 /**
- * Re-check connected MIDI inputs and refresh the USB MIDI status text/
- * button label accordingly. Called after granting access and on every
- * subsequent MIDI connection change. A no-op unless USB MIDI is the
- * active input mode.
+ * Re-check connected MIDI inputs and refresh the status text/button label
+ * accordingly. Called after granting access and on every subsequent MIDI
+ * connection change. A no-op unless MIDI is the active input mode.
  */
 function updateMidiStatus() {
   if (inputMode !== "midi") {
@@ -1568,8 +1732,8 @@ function updateMidiStatus() {
   if (!inputs.length) {
     midiReady = false;
     inputStatusEl.textContent = "No input detected";
-    statusEl.textContent = "Plug in and power on the keyboard, then retry.";
-    midiButtonLabel.textContent = "Retry USB MIDI";
+    statusEl.textContent = "Connect (USB or Bluetooth) and power on the keyboard, then retry.";
+    midiButtonLabel.textContent = "Retry MIDI";
     clearActiveNotes();
     return;
   }
@@ -1578,21 +1742,23 @@ function updateMidiStatus() {
   midiReady = true;
   inputStatusEl.textContent = `${inputs.length} input${inputs.length === 1 ? "" : "s"} connected`;
   statusEl.textContent = `Ready: ${names}.`;
-  midiButtonLabel.textContent = "Refresh USB MIDI";
+  midiButtonLabel.textContent = "Refresh MIDI";
 }
 
 /**
- * Switch to USB MIDI input mode and request Web MIDI access from the
- * browser, updating status text based on the outcome.
+ * Switch to MIDI input mode (USB or Bluetooth — the Web MIDI API doesn't
+ * distinguish the two) and request access from the browser, updating
+ * status text based on the outcome.
  * @returns {Promise<void>}
  */
 async function enableMidi() {
   setInputMode("midi");
   midiReady = false;
+  micReady = false;
   clearActiveNotes();
 
   if (!navigator.requestMIDIAccess) {
-    statusEl.textContent = "Not supported. Try Chrome or Edge.";
+    statusEl.textContent = "Not supported. Try Chrome, Edge, or Safari 17+.";
     inputStatusEl.textContent = "Unsupported browser";
     return;
   }
@@ -1608,7 +1774,200 @@ async function enableMidi() {
   } catch (error) {
     const denied = error?.name === "SecurityError" || error?.name === "NotAllowedError";
     inputStatusEl.textContent = denied ? "Permission denied" : "Connection failed";
-    statusEl.textContent = denied ? "Allow MIDI access, then retry." : "Check the cable and retry.";
+    statusEl.textContent = denied ? "Allow MIDI access, then retry." : "Check the connection and retry.";
+  }
+}
+
+// --- Microphone input (experimental) ---------------------------------
+//
+// Unlike MIDI/keyboard input, which report discrete note-on/note-off
+// events from hardware, a microphone only gives a continuous audio
+// waveform — nothing tells us directly which keys are down. This section
+// estimates it from the sound alone using the Harmonic Product Spectrum
+// (HPS) technique: a note's fundamental frequency also has energy at every
+// integer multiple of itself (its harmonics/overtones), so multiplying the
+// spectrum by copies of itself compressed 2x, 3x, 4x... amplifies true
+// fundamentals and suppresses everything that isn't backed by a harmonic
+// series. This is still nowhere near reliable polyphonic transcription —
+// a real chord's own harmonics can easily be mistaken for other chord
+// tones, and background noise or a quiet/distant mic makes it worse — so
+// treat this mode as a rough, best-effort fallback for when MIDI genuinely
+// isn't available, not a MIDI-equivalent. It tends to do noticeably better
+// on one sustained note at a time than a full held chord.
+
+const MIC_FFT_SIZE = 8192;
+const MIC_NUM_HARMONICS = 5;
+const MIC_MIN_HZ = 80; // below the piano notes that matter for chord ID
+const MIC_MAX_FUNDAMENTAL_HZ = 1050; // ~C6; higher chord tones are covered by their own fundamentals anyway
+const MIC_MAX_CANDIDATES = 6;
+// A detected peak must reach this fraction of the frame's strongest peak
+// to count — filters out noise-floor bumps without an absolute,
+// device/gain-specific volume threshold.
+const MIC_RELATIVE_THRESHOLD = 0.12;
+const MIC_ANALYSIS_INTERVAL_MS = 120;
+
+let micStream = null;
+let micAudioContext = null;
+let micAnalyser = null;
+let micFrequencyData = null;
+let micIntervalId = null;
+let micActiveNotes = new Set();
+
+/**
+ * Convert a frequency to the nearest MIDI note number.
+ * @param {number} frequencyHz - Frequency in Hz.
+ * @returns {number} The nearest MIDI note number (69 = A4 = 440Hz).
+ */
+function midiNoteFromFrequency(frequencyHz) {
+  return Math.round(69 + 12 * Math.log2(frequencyHz / 440));
+}
+
+/**
+ * Estimate which notes are currently sounding from one frame of
+ * frequency-domain data, via a Harmonic Product Spectrum. See the
+ * "Microphone input" comment above for the technique and its limits.
+ * @param {Float32Array} decibels - getFloatFrequencyData() output.
+ * @param {number} sampleRate - The AudioContext's sample rate.
+ * @returns {number[]} Candidate MIDI note numbers, in the piano range.
+ */
+function detectPitchesFromSpectrum(decibels, sampleRate) {
+  const binHz = sampleRate / MIC_FFT_SIZE;
+  const numBins = decibels.length;
+  const magnitude = new Float32Array(numBins);
+  for (let i = 0; i < numBins; i += 1) {
+    magnitude[i] = Math.pow(10, decibels[i] / 20);
+  }
+
+  const minBin = Math.max(1, Math.floor(MIC_MIN_HZ / binHz));
+  const maxBin = Math.min(Math.floor(numBins / MIC_NUM_HARMONICS), Math.floor(MIC_MAX_FUNDAMENTAL_HZ / binHz));
+  if (maxBin <= minBin) {
+    return [];
+  }
+
+  const hps = new Float32Array(maxBin - minBin);
+  let maxValue = 0;
+  for (let bin = minBin; bin < maxBin; bin += 1) {
+    let product = magnitude[bin];
+    for (let harmonic = 2; harmonic <= MIC_NUM_HARMONICS; harmonic += 1) {
+      product *= magnitude[bin * harmonic];
+    }
+    hps[bin - minBin] = product;
+    if (product > maxValue) {
+      maxValue = product;
+    }
+  }
+  if (maxValue <= 0) {
+    return [];
+  }
+
+  const threshold = maxValue * MIC_RELATIVE_THRESHOLD;
+  const peaks = [];
+  for (let i = 1; i < hps.length - 1; i += 1) {
+    if (hps[i] >= threshold && hps[i] > hps[i - 1] && hps[i] >= hps[i + 1]) {
+      peaks.push({ bin: i + minBin, value: hps[i] });
+    }
+  }
+  peaks.sort((a, b) => b.value - a.value);
+
+  const notes = new Set();
+  for (const peak of peaks.slice(0, MIC_MAX_CANDIDATES)) {
+    const note = midiNoteFromFrequency(peak.bin * binHz);
+    if (note >= 21 && note <= 108) {
+      notes.add(note);
+    }
+  }
+  return [...notes];
+}
+
+/**
+ * Poll the microphone's current spectrum, translate it into candidate
+ * notes, and diff against the previous frame's set — feeding the result
+ * through noteOn()/noteOff() so the rest of the app (recognition,
+ * scoring, mastery) treats it exactly like a MIDI or keyboard note
+ * stream, with no special-casing needed elsewhere.
+ */
+function analyzeMicFrame() {
+  if (inputMode !== "microphone" || !micAnalyser) {
+    return;
+  }
+
+  micAnalyser.getFloatFrequencyData(micFrequencyData);
+  const detected = new Set(detectPitchesFromSpectrum(micFrequencyData, micAudioContext.sampleRate));
+
+  detected.forEach((note) => {
+    if (!micActiveNotes.has(note)) {
+      noteOn(note);
+    }
+  });
+  micActiveNotes.forEach((note) => {
+    if (!detected.has(note)) {
+      noteOff(note);
+    }
+  });
+  micActiveNotes = detected;
+}
+
+/** Stop the microphone stream/analysis loop and release the hardware mic. */
+function stopMicrophone() {
+  if (micIntervalId) {
+    window.clearInterval(micIntervalId);
+    micIntervalId = null;
+  }
+  if (micStream) {
+    micStream.getTracks().forEach((track) => track.stop());
+    micStream = null;
+  }
+  if (micAudioContext) {
+    micAudioContext.close().catch(() => {});
+    micAudioContext = null;
+  }
+  micAnalyser = null;
+  micFrequencyData = null;
+  micReady = false;
+  micActiveNotes.forEach((note) => noteOff(note));
+  micActiveNotes = new Set();
+}
+
+/**
+ * Switch to microphone input mode: request mic access and start the
+ * analysis loop. Experimental — see the "Microphone input" comment above
+ * for why this can't match MIDI's reliability, especially on full chords.
+ * @returns {Promise<void>}
+ */
+async function enableMicrophone() {
+  setInputMode("microphone");
+  midiReady = false;
+  micReady = false;
+  clearActiveNotes();
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    statusEl.textContent = "Microphone not supported in this browser.";
+    inputStatusEl.textContent = "Unsupported browser";
+    return;
+  }
+
+  inputStatusEl.textContent = "Requesting microphone access…";
+
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+    });
+    micAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const source = micAudioContext.createMediaStreamSource(micStream);
+    micAnalyser = micAudioContext.createAnalyser();
+    micAnalyser.fftSize = MIC_FFT_SIZE;
+    micAnalyser.smoothingTimeConstant = 0.6;
+    source.connect(micAnalyser);
+    micFrequencyData = new Float32Array(micAnalyser.frequencyBinCount);
+    micIntervalId = window.setInterval(analyzeMicFrame, MIC_ANALYSIS_INTERVAL_MS);
+
+    micReady = true;
+    inputStatusEl.textContent = "Listening via microphone";
+    statusEl.textContent = "Microphone ready — play close to the mic in a quiet room for best results.";
+  } catch (error) {
+    const denied = error?.name === "SecurityError" || error?.name === "NotAllowedError";
+    inputStatusEl.textContent = denied ? "Permission denied" : "Connection failed";
+    statusEl.textContent = denied ? "Allow microphone access, then retry." : "Could not access the microphone.";
   }
 }
 
@@ -1616,6 +1975,7 @@ async function enableMidi() {
 function enableKeyboard() {
   setInputMode("keyboard");
   midiReady = false;
+  micReady = false;
   clearActiveNotes();
   createKeyboardAudio();
   inputStatusEl.textContent = "Keyboard active";
@@ -1704,7 +2064,17 @@ pauseButton.addEventListener("click", togglePause);
 stopButton.addEventListener("click", stopGame);
 midiButton.addEventListener("click", enableMidi);
 keyboardButton.addEventListener("click", enableKeyboard);
+micButton.addEventListener("click", enableMicrophone);
 speedSlider.addEventListener("input", updateSpeedFromSlider);
+// The Wake Lock API auto-releases whenever the tab is hidden (switching
+// apps, locking the screen); re-request it once the player comes back, but
+// only if a run is still actually active and not paused — otherwise this
+// would needlessly re-arm it for an idle or stopped game.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && gameRunning && !paused) {
+    requestWakeLock();
+  }
+});
 resetStatsButton.addEventListener("click", async () => {
   if (!window.confirm("Reset your chord mastery stats?")) {
     return;
@@ -1729,7 +2099,7 @@ recognitionModeEl.addEventListener("change", () => {
 scene.configure({
   isRunning: () => gameRunning && !paused,
   isResolving: () => resolving,
-  getSpeed: () => speed,
+  getSpeed: () => effectiveSpeed(),
   // Only custom (uploaded/library) progressions carry real rhythm data; in
   // random practice this stays null and the scene falls back to a plain
   // speed-slider pace. See models/chords.py's duration_beats.
@@ -1786,7 +2156,7 @@ if (savedPlayerMode === "league" && savedPlayerName) {
 }
 
 updateHud();
-renderTargetPrompt();
+renderNotes();
 loadModules();
 loadStats();
 loadLeaderboard();

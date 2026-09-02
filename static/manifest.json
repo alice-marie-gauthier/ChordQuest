@@ -1,0 +1,19 @@
+{
+  "name": "ChordQuest",
+  "short_name": "ChordQuest",
+  "description": "Adaptive piano chord runner game with MIDI/keyboard chord recognition.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#895129",
+  "icons": [
+    {
+      "src": "/images/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

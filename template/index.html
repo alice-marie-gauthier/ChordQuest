@@ -5,6 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>ChordQuest Runner</title>
     <link rel="stylesheet" href="/css/styles.css" />
+    <link rel="icon" href="/images/icon.svg" type="image/svg+xml" />
+    <!-- Lets Safari's "Add to Home Screen" install ChordQuest as a
+         full-screen, icon-launched app instead of just a bookmark — see
+         README.md's "Play from a phone or tablet" section. -->
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/images/icon.svg" />
+    <meta name="theme-color" content="#895129" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="ChordQuest" />
   </head>
   <body>
     <main>
@@ -273,8 +283,8 @@
                   <circle cx="39" cy="24" r="7" fill="none" stroke="currentColor" stroke-width="3" />
                 </svg>
               </span>
-              <strong id="midiButtonLabel">USB MIDI</strong>
-              <small>USB cable</small>
+              <strong id="midiButtonLabel">MIDI</strong>
+              <small>USB or Bluetooth</small>
             </button>
             <button class="input-mode-card" id="keyboardButton" type="button">
               <span class="input-mode-icon" aria-hidden="true">
@@ -289,6 +299,18 @@
               </span>
               <strong>Computer keyboard</strong>
               <small>A W S E D F T G Z H U J K</small>
+            </button>
+            <button class="input-mode-card" id="micButton" type="button">
+              <span class="input-mode-icon" aria-hidden="true">
+                <svg viewBox="0 0 48 48" width="30" height="30">
+                  <rect x="18" y="6" width="12" height="24" rx="6" fill="none" stroke="currentColor" stroke-width="3" />
+                  <path d="M12 22v2a12 12 0 0 0 24 0v-2" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" />
+                  <line x1="24" y1="36" x2="24" y2="42" stroke="currentColor" stroke-width="3" stroke-linecap="round" />
+                  <line x1="16" y1="42" x2="32" y2="42" stroke="currentColor" stroke-width="3" stroke-linecap="round" />
+                </svg>
+              </span>
+              <strong id="micButtonLabel">Microphone</strong>
+              <small>Listen to the piano</small>
             </button>
           </div>
           <small id="inputStatus">No input selected</small>
@@ -324,12 +346,13 @@
       </section>
 
       <div class="play-area" id="playArea" hidden>
+        <!-- No "Target chord"/"Arriving chord" text here on purpose: showing
+             the answer before the obstacle is actually visible would just
+             let you read it off the HUD instead of reacting to the game
+             itself. The chord still appears on the obstacle as it arrives
+             (see static/js/game/obstacle.js) and this arrival-track bar
+             below still shows how close it is. -->
         <section class="game-hud">
-          <div>
-            <span>Target chord</span>
-            <strong id="target">Select and start</strong>
-            <small id="formula"></small>
-          </div>
           <div>
             <span>Detected</span>
             <strong id="chord">Listening</strong>
@@ -338,15 +361,15 @@
           <div>
             <span>Score</span>
             <strong id="score">0 pts</strong>
-            <small id="meta">Speed 2.8</small>
+            <small id="meta">Level 1</small>
+          </div>
+          <div>
+            <span>Best score</span>
+            <strong id="bestScore">0 pts</strong>
           </div>
         </section>
 
-        <section class="target-panel" aria-label="Interactive chord target">
-          <div>
-            <span>Arriving chord</span>
-            <strong id="arrivalChord">Waiting</strong>
-          </div>
+        <section class="target-panel" aria-label="Chord arrival progress">
           <div class="arrival-track" aria-hidden="true">
             <div id="arrivalMeter"></div>
           </div>
@@ -354,8 +377,8 @@
 
         <canvas id="game" width="980" height="320" aria-label="Runner game"></canvas>
 
-        <p class="keyboard-guide">Keyboard: A W S E D F T G Z H U J K</p>
-        <section class="keys" id="keys"></section>
+        <p class="keyboard-guide" id="keyboardGuide" hidden>Keyboard: A W S E D F T G Z H U J K</p>
+        <section class="keys" id="keys" hidden></section>
 
         <section class="mastery-panel" aria-label="Chord mastery">
           <div class="mastery-panel-header">

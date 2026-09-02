@@ -65,10 +65,14 @@ CHORD_FAMILIES = (
     ChordFamily("major7", "sevenths", "Major 7", "maj7", (0, 4, 7, 11), "1-3-5-7"),
     ChordFamily("minor7", "sevenths", "Minor 7", "m7", (0, 3, 7, 10), "1-b3-5-b7"),
     ChordFamily("halfDiminished", "sevenths", "Half-diminished", "m7b5", (0, 3, 6, 10), "1-b3-b5-b7"),
+    ChordFamily("diminished7", "sevenths", "Diminished 7", "dim7", (0, 3, 6, 9), "1-b3-b5-bb7"),
+    ChordFamily("minorMajor7", "sevenths", "Minor-major 7", "mMaj7", (0, 3, 7, 11), "1-b3-5-7"),
+    ChordFamily("dominant7sus4", "sevenths", "7sus4", "7sus4", (0, 5, 7, 10), "1-4-5-b7"),
     ChordFamily("sus2", "suspensions", "Suspended 2", "sus2", (0, 2, 7), "1-2-5"),
     ChordFamily("sus4", "suspensions", "Suspended 4", "sus4", (0, 5, 7), "1-4-5"),
     ChordFamily("add9", "extensions", "Add9", "add9", (0, 4, 7, 14), "1-3-5-9"),
     ChordFamily("ninth", "extensions", "9th", "9", (0, 4, 7, 10, 14), "1-3-5-b7-9"),
+    ChordFamily("ninthSus4", "extensions", "9sus4", "9sus4", (0, 5, 7, 10, 14), "1-4-5-b7-9"),
     ChordFamily("eleventh", "extensions", "11th", "11", (0, 4, 7, 10, 14, 17), "1-3-5-b7-9-11"),
     ChordFamily("thirteenth", "extensions", "13th", "13", (0, 4, 7, 10, 14, 17, 21), "1-3-5-b7-9-11-13"),
 )
@@ -467,10 +471,10 @@ def parse_chord_symbol(symbol: str) -> ChordPrompt:
 
     Only recognizes the exact vocabulary the game itself teaches: a root
     letter A-G, an optional "#"/"b" accidental, and one of the known
-    ChordFamily suffixes ("", "m", "7", "maj7", "m7", "m7b5", "sus2",
-    "sus4", "add9", "9", "11", "13") — matching case-insensitively on the
-    suffix. Inversions aren't supported; every parsed chord is root
-    position.
+    ChordFamily suffixes ("", "m", "7", "maj7", "m7", "m7b5", "dim7",
+    "mMaj7", "7sus4", "sus2", "sus4", "add9", "9", "9sus4", "11", "13") —
+    matching case-insensitively on the suffix. Inversions aren't
+    supported; every parsed chord is root position.
 
     An optional ":<duration>" suffix sets how long the chord is held, in
     quarter-note beats: "C" (no suffix) is a quarter/noire, "C:2" a
@@ -521,7 +525,14 @@ def parse_chord_symbol(symbol: str) -> ChordPrompt:
         raise ValueError(f"'{symbol}' has no valid root note")
 
     quality = rest.strip().lower()
-    family = next((candidate for candidate in _SUFFIXES_BY_LENGTH if candidate.suffix == quality), None)
+    # .lower() on both sides: every declared suffix so far happens to already
+    # be lowercase ("maj7", "m7b5", ...), which made a bare `==` comparison
+    # here look case-insensitive by coincidence — it silently stopped
+    # matching the moment a mixed-case suffix (mMaj7, for its conventional
+    # display casing) was declared. Comparing lowercased on both sides is
+    # what the "matching case-insensitively" docstring promise actually
+    # requires, independent of how any given suffix happens to be spelled.
+    family = next((candidate for candidate in _SUFFIXES_BY_LENGTH if candidate.suffix.lower() == quality), None)
     if family is None:
         raise ValueError(f"'{symbol}' has an unrecognized chord quality '{rest.strip()}'")
 

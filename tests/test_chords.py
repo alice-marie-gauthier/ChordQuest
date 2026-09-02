@@ -51,6 +51,26 @@ class ChordRecognitionTests(unittest.TestCase):
     def test_held_is_the_default_recognition_mode(self):
         self.assertEqual(recognize_chord([69, 62, 64]), recognize_chord([69, 62, 64], mode="held"))
 
+    def test_recognizes_diminished_seventh(self):
+        chord = recognize_chord([60, 63, 66, 69])
+        self.assertEqual(chord["symbol"], "Cdim7")
+        self.assertEqual(chord["family_id"], "diminished7")
+
+    def test_recognizes_minor_major_seventh(self):
+        chord = recognize_chord([60, 63, 67, 71])
+        self.assertEqual(chord["symbol"], "CmMaj7")
+        self.assertEqual(chord["family_id"], "minorMajor7")
+
+    def test_recognizes_dominant_seventh_sus4(self):
+        chord = recognize_chord([60, 65, 67, 70])
+        self.assertEqual(chord["symbol"], "C7sus4")
+        self.assertEqual(chord["family_id"], "dominant7sus4")
+
+    def test_recognizes_ninth_sus4(self):
+        chord = recognize_chord([60, 65, 67, 70, 74])
+        self.assertEqual(chord["symbol"], "C9sus4")
+        self.assertEqual(chord["family_id"], "ninthSus4")
+
     def test_creates_prompt_pool_for_selected_categories(self):
         prompts = create_prompt_pool(["minor", "inversions"])
 
@@ -107,9 +127,22 @@ class ChordSymbolParsingTests(unittest.TestCase):
         self.assertEqual(parse_chord_symbol("Gsus2")["family_id"], "sus2")
         self.assertEqual(parse_chord_symbol("G9")["family_id"], "ninth")
 
+    def test_parses_the_newly_added_seventh_and_sus_chords(self):
+        self.assertEqual(parse_chord_symbol("Cdim7")["family_id"], "diminished7")
+        self.assertEqual(parse_chord_symbol("CmMaj7")["family_id"], "minorMajor7")
+        self.assertEqual(parse_chord_symbol("C7sus4")["family_id"], "dominant7sus4")
+        self.assertEqual(parse_chord_symbol("C9sus4")["family_id"], "ninthSus4")
+
     def test_is_forgiving_of_whitespace_and_suffix_casing(self):
         self.assertEqual(parse_chord_symbol("  Cmaj7  ")["family_id"], "major7")
         self.assertEqual(parse_chord_symbol("CMAJ7")["family_id"], "major7")
+        # Regression test: "mMaj7" is a mixed-case suffix (by convention, for
+        # its display symbol) — a naive `==` match against the lowercased
+        # input would silently never match it. See parse_chord_symbol's
+        # suffix-lookup comment for the full story.
+        self.assertEqual(parse_chord_symbol("CmMaj7")["family_id"], "minorMajor7")
+        self.assertEqual(parse_chord_symbol("Cmmaj7")["family_id"], "minorMajor7")
+        self.assertEqual(parse_chord_symbol("CMMAJ7")["family_id"], "minorMajor7")
 
     def test_parsed_chords_are_tagged_as_custom_category_root_position(self):
         prompt = parse_chord_symbol("F")

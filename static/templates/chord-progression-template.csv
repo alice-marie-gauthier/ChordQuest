@@ -1,3 +1,43 @@
+# ChordQuest — Song Progression CSV
+# One chord per line, in the order you want to play them. Lines starting
+# with "#" (like this whole block) are comments and are ignored — delete
+# this header or leave it in, whichever you prefer.
+#
+# ROOT NOTE (required): A B C D E F G
+#   Sharp: letter + #   ->  C#  F#
+#   Flat:  letter + b   ->  Db  Bb
+#
+# QUALITY (optional, right after the root — leave blank for major):
+#   (none)   major                          C
+#   m        minor                          Cm
+#   7        dominant 7th                   C7
+#   maj7     major 7th                      Cmaj7
+#   m7       minor 7th                      Cm7
+#   m7b5     half-diminished (m7, flat 5)   Cm7b5
+#   dim7     diminished 7th                 Cdim7
+#   mMaj7    minor-major 7th                CmMaj7
+#   sus2     suspended 2nd                  Csus2
+#   sus4     suspended 4th                  Csus4
+#   7sus4    dominant 7th, suspended 4th    C7sus4
+#   add9     add 9 (no 7th)                 Cadd9
+#   9        dominant 9th                   C9
+#   9sus4    dominant 9th, suspended 4th    C9sus4
+#   11       dominant 11th                  C11
+#   13       dominant 13th                  C13
+#
+# DURATION (optional, after a colon — leave blank for a quarter/noire):
+#   :2       half note / blanche      (2 beats)             C:2
+#   :4       whole note / ronde       (4 beats)              C:4
+#   :/2      eighth note / croche     (half a beat)          C:/2
+#   :/4      sixteenth note           (a quarter of a beat)  C:/4
+#   Combine quality + duration freely, e.g. Bbmaj7:2, F#sus4:/2
+#
+# TEMPO: not part of this file — set it once for the whole song in the
+# "Tempo (BPM)" field next to the upload button in the app; it's what the
+# durations above are measured against.
+#
+# The word "chord" on the next line is a header label, also ignored — it's
+# just there so the file reads sensibly if you open it in a spreadsheet.
 chord
 C
 G

@@ -220,3 +220,10 @@ __marimo__/
 # ChordQuest: local Chord League leaderboard data (player names + scores),
 # regenerated at runtime — never committed.
 /data/
+
+# ChordQuest: the runner's head photo is a personal picture, not something
+# to publish — keep your own copy locally at this path and it's picked up
+# automatically (see static/js/app.js's headImageSrc); anyone without one
+# just gets the built-in placeholder face (see static/js/game/runner.js).
+/static/images/photo_tete_bonhomme.png
+/static/images/photo_tete_bonhomme_old.png

@@ -31,10 +31,11 @@ File format:
 - `chords` (required): the progression, one chord symbol per entry, in
   playing order. Use the exact vocabulary ChordQuest itself teaches: a
   root letter A-G with an optional `#`/`b`, followed by one of `""`
-  (major), `m`, `7`, `maj7`, `m7`, `m7b5`, `sus2`, `sus4`, `add9`, `9`,
-  `11`, `13` — e.g. `C`, `F#m`, `Bbmaj7`, `Dsus4`. Unrecognized entries
-  are silently dropped when the song loads (check the chord count shown
-  in the picker matches what you expect).
+  (major), `m`, `7`, `maj7`, `m7`, `m7b5`, `dim7`, `mMaj7`, `sus2`,
+  `sus4`, `7sus4`, `add9`, `9`, `9sus4`, `11`, `13` — e.g. `C`, `F#m`,
+  `Bbmaj7`, `Dsus4`, `A7sus4`. Unrecognized entries are silently dropped
+  when the song loads (check the chord count shown in the picker matches
+  what you expect).
 
 ### Rhythm (note duration)
 

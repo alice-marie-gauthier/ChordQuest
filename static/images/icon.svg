@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <!-- App icon for the Home Screen (Safari "Add to Home Screen") and the
+       browser-tab favicon: a rounded brown square (matches --brown from
+       static/css/styles.css) with a white eighth-note glyph, echoing the
+       small heading-icon note used throughout the UI (e.g. "Chord
+       categories"). SVG rather than a raster PNG so it stays crisp at any
+       size and needs no separate export step. -->
+  <rect width="192" height="192" rx="40" fill="#895129" />
+  <g transform="translate(52 40)" fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="30" y1="10" x2="30" y2="92" />
+    <path d="M30 10 L74 22 L74 46" />
+    <circle cx="16" cy="98" r="16" fill="#ffffff" stroke="none" />
+    <circle cx="60" cy="52" r="16" fill="#ffffff" stroke="none" />
+  </g>
+</svg>

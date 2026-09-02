@@ -6,9 +6,10 @@ Adaptive piano chord runner game scripted in Python with a browser UI.
 
 - Select one or more chord categories: Major, Minor, 7th Chords, Suspensions, Inversions, Extensions.
 - Practice chords rooted on natural notes, sharps, and flats.
-- Play with a USB MIDI keyboard through the browser Web MIDI API.
+- Play with a MIDI keyboard (USB or Bluetooth alike) through the browser Web MIDI API.
 - Play piano sounds with a QWERTZ computer keyboard using `A W S E D F T G Z H U J K`.
-- Choose one input mode at a time: USB MIDI or computer keyboard.
+- No MIDI keyboard? An experimental microphone mode listens to an acoustic piano and estimates the notes from the sound itself (see "Microphone" below for what to expect from it).
+- Choose one input mode at a time: MIDI, computer keyboard, or microphone.
 - Choose a recognition mode: held chord or arpeggio.
 - Choose the runner speed with a slider before or during the game.
 - Runner game: the arriving chord is the obstacle, and the boy jumps when the requested chord is correct.
@@ -25,13 +26,26 @@ Adaptive piano chord runner game scripted in Python with a browser UI.
 - A visual theme matched to the Swiss Cat+ tools (white/grey-beige, cards on a soft shadow with a thin grey line, a brown accent, a bold plain sans-serif) shared by the page and the canvas game.
 - Unit tests for chord recognition, mastery tracking, and the Chord League leaderboard/avatars.
 
-## USB MIDI
+## MIDI (USB or Bluetooth)
 
-USB MIDI works in Chrome or Edge from `http://127.0.0.1:8000` (or any `https://` URL, e.g. a deployed instance — see "Play from a phone or tablet" below; the Web MIDI API requires one of those two, plain `http://` on any other host won't work). Click `Use USB MIDI` after connecting and powering on the keyboard. If the page says no input is detected, reconnect the cable or power-cycle the keyboard, then click `Retry USB MIDI`; the game also refreshes automatically when the browser reports a MIDI connection change.
+The Web MIDI API doesn't distinguish transport — a MIDI keyboard connected by USB and one connected over Bluetooth both just show up as an "input" once the browser has access, so the `MIDI` card covers both. It works in Chrome, Edge, and **Safari 17+ / iOS or iPadOS 17+** (WebKit added Web MIDI support there; older Safari versions don't have it) from `http://127.0.0.1:8000` or any `https://` URL, e.g. a deployed instance — see "Play from a phone or tablet" below; the Web MIDI API requires one of those two, plain `http://` on any other host won't work. Click `MIDI`, allow the permission prompt, and connect/power on the keyboard. If the page says no input is detected, reconnect the cable or power-cycle the keyboard (or re-pair over Bluetooth), then click `Retry MIDI`; the game also refreshes automatically when the browser reports a MIDI connection change.
+
+**Bluetooth MIDI on an iPad**, e.g. a Yamaha P-225 or similar: if you can already see the keyboard from a companion app like Yamaha Smart Pianist, it's paired over Bluetooth MIDI — but that pairing lives at the OS/CoreMIDI level, not inside that one app, so once it's connected, Safari's Web MIDI should see it too, the same as it would a USB keyboard. Bluetooth *MIDI* devices don't show up in the regular Settings → Bluetooth list on iOS/iPadOS the way headphones do; if the keyboard doesn't already show up as an input on the `MIDI` card, open `bluetooth-midi://` in Safari — this triggers iOS's built-in Bluetooth MIDI pairing screen (a system feature, not specific to any one app) where you can select and connect the keyboard directly, without needing Smart Pianist or any other app open.
 
 ## Computer Keyboard
 
-Click `Use computer keyboard` to play piano sounds with the QWERTZ computer keyboard. The game listens to `A W S E D F T G Z H U J K` only while this mode is selected.
+Click `Computer keyboard` to play piano sounds with the QWERTZ computer keyboard, or tap the on-screen piano keys shown once this mode is active (they respond to touch/mouse/pen alike). The game listens to `A W S E D F T G Z H U J K` only while this mode is selected.
+
+## Microphone
+
+Click `Microphone` to try detecting chords from an acoustic piano's actual sound instead of a MIDI/keyboard connection — useful when neither is available. **This is experimental and meaningfully less reliable than MIDI or the on-screen keyboard**, so it's worth understanding what it's actually doing before relying on it:
+
+- It analyzes the microphone's audio spectrum with a Harmonic Product Spectrum (a classic, simple DSP technique — not a trained model), looking for frequency peaks backed by a harmonic series and mapping them to the nearest piano notes. There's no dependency to install for this; it's built entirely on the browser's Web Audio API.
+- A real piano note's own overtones can be mistaken for other chord tones, so a 3-4 note chord is meaningfully harder to detect correctly than one note played at a time — don't be surprised if it works better for practicing single notes/intervals than full held chords.
+- Background noise, room acoustics, and how close/loud the piano is to the microphone all matter a lot in practice. A quiet room and a mic placed close to the piano give the best results.
+- Like MIDI, it needs a secure context (`https://` or `localhost`) and an explicit microphone permission grant.
+
+If you have an actual MIDI connection available (even Bluetooth — see above), it'll be far more accurate than the microphone.
 
 ## Recognition Mode
 
@@ -60,9 +74,9 @@ Once a run is started, `Pause` freezes the obstacle and stops chords from being 
 
 ## Song Progression
 
-By default the game asks for random chords from your selected categories. To practice a real chord progression instead — your own transcription of a known song, a progression from a lesson, anything — click `Download template` for a one-column CSV (`chord`, then one chord symbol per line), fill it in with your own progression, and click `Upload CSV`.
+By default the game asks for random chords from your selected categories. To practice a real chord progression instead — your own transcription of a known song, a progression from a lesson, anything — click `Download template` for a one-column CSV (`chord`, then one chord symbol per line), fill it in with your own progression, and click `Upload CSV`. The template itself carries a full notation cheat-sheet as `#`-prefixed comment lines (roots, every chord quality, the duration suffixes below) — those lines are ignored on upload, so you can leave them in or delete them.
 
-Accepted chord symbols are exactly the vocabulary the game itself teaches: a root letter A-G with an optional `#`/`b`, followed by one of `""` (major), `m` (minor), `7`, `maj7`, `m7`, `m7b5`, `sus2`, `sus4`, `add9`, `9`, `11`, `13` — e.g. `C`, `F#m`, `Bbmaj7`, `Dsus4`. Rows that don't match are skipped with a reason shown in the status line rather than failing the whole import; inversions aren't supported in a CSV (every chord loads in root position).
+Accepted chord symbols are exactly the vocabulary the game itself teaches: a root letter A-G with an optional `#`/`b`, followed by one of `""` (major), `m` (minor), `7`, `maj7`, `m7`, `m7b5`, `dim7`, `mMaj7`, `sus2`, `sus4`, `7sus4`, `add9`, `9`, `9sus4`, `11`, `13` — e.g. `C`, `F#m`, `Bbmaj7`, `Dsus4`, `A7sus4`. Rows that don't match are skipped with a reason shown in the status line rather than failing the whole import; inversions aren't supported in a CSV (every chord loads in root position).
 
 Give the upload a `Song title` and, once it parses successfully, it's automatically saved to the **Uploaded Songs** library (see below) so you don't have to re-upload the file next time. The `Random practice` / `Custom progression` choice sits at the top of the panel; picking `Custom progression` is what reveals the upload/library controls in the first place, and once a progression is loaded it steps through the chords in order, looping back to the start when it reaches the end. Click `Clear` to remove the loaded progression and go back to `Random practice`.
 
@@ -218,7 +232,7 @@ In the browser:
 1. Pick `Practice solo` or `Join the Chord League` (build an avatar, enter a name, click `Join`).
 2. Select the chord categories to practice.
 3. Choose `Held chord` or `Arpeggio`.
-4. Click the `USB MIDI` or `Computer keyboard` card to pick your input device.
+4. Click the `MIDI`, `Computer keyboard`, or `Microphone` card to pick your input device.
 5. Choose the speed with the slider.
 6. Click `Start game`.
 7. Play the displayed chord before the arriving chord reaches the boy.
@@ -247,4 +261,8 @@ Two free-tier things worth knowing before you rely on this:
 - **The service sleeps after ~15 minutes idle** and takes a few seconds to wake up on the next request — normal for Render's free plan, not a bug.
 - **The filesystem is ephemeral.** `data/players.json` (Chord League scores/avatars) and `data/uploaded_songs.json` (the Uploaded Songs library) reset on every redeploy or restart unless you add a paid persistent disk. `library/curated/` ("My Library") is unaffected, since that's part of the git-tracked code rather than runtime data.
 
-MIDI needs a secure context to work at all (`https://` or `localhost`), which Render's URL satisfies automatically — no certificate setup needed. Mobile browser support for the Web MIDI API itself is inconsistent (Chrome on Android supports it; Safari on iOS generally doesn't), so on a phone/tablet without a USB MIDI adapter, pick `Computer keyboard` as the input device and tap the on-screen piano keys instead — they respond to touch/pointer input already, no physical keyboard required.
+MIDI needs a secure context to work at all (`https://` or `localhost`), which Render's URL satisfies automatically — no certificate setup needed. Web MIDI works in Chrome on Android and in Safari on iOS/iPadOS 17+ (see "MIDI (USB or Bluetooth)" above, including how to pair a Bluetooth keyboard like a Yamaha P-225). Without a MIDI keyboard on hand at all, pick `Computer keyboard` and tap the on-screen piano keys — they respond to touch/pointer input already — or try the experimental `Microphone` mode (see "Microphone" above).
+
+### Installing it as a Home Screen icon
+
+Once deployed, open the `https://...onrender.com` link in Safari on the iPad and use **Share → Add to Home Screen**. ChordQuest ships a web app manifest (`static/manifest.json`) and the Apple-specific `<meta>`/`<link>` tags it needs, so the resulting icon launches full-screen (no browser address bar) like an installed app, without going through the App Store. The device also won't dim or lock itself while a run is active — the app requests a screen wake lock the moment you click `Start game` and releases it on `Stop game` (supported on iPadOS 16.4+; on anything older it's a silent no-op, gameplay is unaffected).

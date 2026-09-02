@@ -147,10 +147,9 @@ h1 {
 }
 
 /* Smaller than the real section headers above — these are compact HUD/stat
-   cards (Target chord, Detected, Score, Arriving chord), not top-level
-   page sections, so their labels read at the same scale as a card title. */
-.game-hud > div > span,
-.target-panel > div > span {
+   cards (Detected, Score, Best score), not top-level page sections, so
+   their labels read at the same scale as a card title. */
+.game-hud > div > span {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -294,7 +293,7 @@ h1 {
 
 .input-mode-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -734,19 +733,9 @@ button.selected {
   line-height: 1.35;
 }
 
-.target-panel {
-  grid-template-columns: 190px minmax(220px, 1fr);
-  align-items: center;
-}
-
-.target-panel strong {
-  display: block;
-  font-family: var(--font-sans);
-  font-weight: 900;
-  font-size: 1.1rem;
-  line-height: 1.15;
-  color: var(--wine-deep);
-}
+/* .target-panel now holds only the arrival-track progress bar — no more
+   text label/value (see the HTML comment on that section for why — this
+   card exists purely as a proximity "cursor", not a second answer key). */
 
 .arrival-track {
   height: 18px;
@@ -1070,8 +1059,7 @@ button.active {
 
 @media (max-width: 820px) {
   .play-row,
-  .game-hud,
-  .target-panel {
+  .game-hud {
     grid-template-columns: 1fr;
   }
 
