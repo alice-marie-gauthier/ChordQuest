@@ -536,5 +536,9 @@ def run(host: str = "127.0.0.1", port: int = 8000) -> None:
 if __name__ == "__main__":
     run(
         host=os.environ.get("CHORDQUEST_HOST", "127.0.0.1"),
-        port=int(os.environ.get("CHORDQUEST_PORT", "8000")),
+        # CHORDQUEST_PORT takes priority; PORT is the fallback because that's
+        # the variable most hosting platforms (Render, Railway, Heroku-style
+        # buildpacks) inject automatically, so a deployed instance picks the
+        # right port with no extra configuration beyond CHORDQUEST_HOST.
+        port=int(os.environ.get("CHORDQUEST_PORT", os.environ.get("PORT", "8000"))),
     )

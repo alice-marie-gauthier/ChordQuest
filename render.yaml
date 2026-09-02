@@ -1,0 +1,25 @@
+# Render.com Blueprint — lets Render deploy ChordQuest with one click from
+# https://dashboard.render.com/select-repo?type=blueprint instead of
+# clicking through the "New Web Service" form by hand. See README.md's
+# "Play from a phone or tablet" section for the full walkthrough.
+#
+# Free-tier caveats worth knowing before you deploy:
+# - The service spins down after ~15 minutes idle and takes a few seconds
+#   to wake back up on the next request (normal for Render's free plan).
+# - The filesystem is ephemeral: data/players.json and
+#   data/uploaded_songs.json (Chord League scores, uploaded songs) reset on
+#   every redeploy or restart unless you attach a paid persistent disk.
+#   library/curated/ (your own "My Library" songs) is unaffected — it's
+#   part of the git-tracked code, not runtime data.
+services:
+  - type: web
+    name: chordquest
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
+    envVars:
+      # Render only routes traffic to 0.0.0.0; app.py otherwise defaults to
+      # 127.0.0.1 (loopback-only) for local-run safety, so this is required.
+      - key: CHORDQUEST_HOST
+        value: 0.0.0.0

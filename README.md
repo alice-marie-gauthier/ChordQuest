@@ -27,7 +27,7 @@ Adaptive piano chord runner game scripted in Python with a browser UI.
 
 ## USB MIDI
 
-USB MIDI works in Chrome or Edge from `http://127.0.0.1:8000`. Click `Use USB MIDI` after connecting and powering on the keyboard. If the page says no input is detected, reconnect the cable or power-cycle the keyboard, then click `Retry USB MIDI`; the game also refreshes automatically when the browser reports a MIDI connection change.
+USB MIDI works in Chrome or Edge from `http://127.0.0.1:8000` (or any `https://` URL, e.g. a deployed instance — see "Play from a phone or tablet" below; the Web MIDI API requires one of those two, plain `http://` on any other host won't work). Click `Use USB MIDI` after connecting and powering on the keyboard. If the page says no input is detected, reconnect the cable or power-cycle the keyboard, then click `Retry USB MIDI`; the game also refreshes automatically when the browser reports a MIDI connection change.
 
 ## Computer Keyboard
 
@@ -64,7 +64,7 @@ By default the game asks for random chords from your selected categories. To pra
 
 Accepted chord symbols are exactly the vocabulary the game itself teaches: a root letter A-G with an optional `#`/`b`, followed by one of `""` (major), `m` (minor), `7`, `maj7`, `m7`, `m7b5`, `sus2`, `sus4`, `add9`, `9`, `11`, `13` — e.g. `C`, `F#m`, `Bbmaj7`, `Dsus4`. Rows that don't match are skipped with a reason shown in the status line rather than failing the whole import; inversions aren't supported in a CSV (every chord loads in root position).
 
-Give the upload a `Song title` and, once it parses successfully, it's automatically saved to the **Uploaded Songs** library (see below) so you don't have to re-upload the file next time. Once a progression is loaded — by upload or from a library — a `Practice mode` choice appears: `Random practice` (the default) or `Custom progression`, which steps through the chords in order and loops back to the start when it reaches the end. Click `Clear` to remove the loaded progression and go back to random-only practice.
+Give the upload a `Song title` and, once it parses successfully, it's automatically saved to the **Uploaded Songs** library (see below) so you don't have to re-upload the file next time. The `Random practice` / `Custom progression` choice sits at the top of the panel; picking `Custom progression` is what reveals the upload/library controls in the first place, and once a progression is loaded it steps through the chords in order, looping back to the start when it reaches the end. Click `Clear` to remove the loaded progression and go back to `Random practice`.
 
 ChordQuest doesn't fetch progressions from any external site — sheet-music platforms (Noviscore, Quickpartitions, Oktav, Tomplay, etc.) sell copyrighted arrangements and don't offer a public API for this, so pulling from them isn't something this project does. The CSV is entirely yours to fill in.
 
@@ -229,3 +229,22 @@ Run Python tests:
 ```bash
 python -m unittest discover -s tests
 ```
+
+## Play from a phone or tablet
+
+`http://127.0.0.1:8000` only works from the same machine `python app.py` is running on. To open ChordQuest from a phone or tablet without starting the script yourself each time, deploy it to a free host that keeps `python app.py` running and gives you a stable `https://` URL instead.
+
+This repo is ready to deploy as-is (zero dependencies, no build step) via **[Render](https://render.com)**, free tier:
+
+1. Push this repo to GitHub if it isn't already there.
+2. On Render, click **New → Blueprint**, pick this repo — it reads `render.yaml` automatically and fills in the build/start commands and the `CHORDQUEST_HOST=0.0.0.0` variable it needs to accept outside traffic (`127.0.0.1`, the default for local runs, only accepts connections from the same machine).
+3. Click **Deploy**. Render gives you a `https://<something>.onrender.com` URL — open that on your phone/tablet and it behaves exactly like the local version.
+
+A `Procfile` is also included for Railway or other Heroku-style buildpack hosts, if you'd rather use one of those instead.
+
+Two free-tier things worth knowing before you rely on this:
+
+- **The service sleeps after ~15 minutes idle** and takes a few seconds to wake up on the next request — normal for Render's free plan, not a bug.
+- **The filesystem is ephemeral.** `data/players.json` (Chord League scores/avatars) and `data/uploaded_songs.json` (the Uploaded Songs library) reset on every redeploy or restart unless you add a paid persistent disk. `library/curated/` ("My Library") is unaffected, since that's part of the git-tracked code rather than runtime data.
+
+MIDI needs a secure context to work at all (`https://` or `localhost`), which Render's URL satisfies automatically — no certificate setup needed. Mobile browser support for the Web MIDI API itself is inconsistent (Chrome on Android supports it; Safari on iOS generally doesn't), so on a phone/tablet without a USB MIDI adapter, pick `Computer keyboard` as the input device and tap the on-screen piano keys instead — they respond to touch/pointer input already, no physical keyboard required.
