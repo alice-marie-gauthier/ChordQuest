@@ -192,3 +192,19 @@ export function renderAvatarMarkup(avatarInput, size = 64) {
     </svg>
   `;
 }
+
+/**
+ * Build a data: URI for an avatar's rendered SVG, for use as an
+ * <img>/Image src (e.g. the runner's on-canvas head in
+ * static/js/game/runner.js) rather than markup inserted via innerHTML.
+ * Unlike the raw renderAvatarMarkup() output, this declares the SVG
+ * xmlns — required for a browser's image loader (not just innerHTML) to
+ * accept it as a standalone document.
+ * @param {*} avatarInput - Untrusted avatar object (sanitized internally).
+ * @param {number} [size] - Rendered width/height in pixels.
+ * @returns {string} A "data:image/svg+xml;utf8,..." URI.
+ */
+export function avatarHeadImageSrc(avatarInput, size = 96) {
+  const svg = renderAvatarMarkup(avatarInput, size).replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ');
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}

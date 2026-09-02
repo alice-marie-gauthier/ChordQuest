@@ -1,5 +1,5 @@
 import { RunnerScene } from "./game/scene.js";
-import { AVATAR_TRAITS, DEFAULT_AVATAR, renderAvatarMarkup, sanitizeAvatar } from "./avatar.js";
+import { AVATAR_TRAITS, DEFAULT_AVATAR, avatarHeadImageSrc, renderAvatarMarkup, sanitizeAvatar } from "./avatar.js";
 
 // Mirrors models/library.py's DEFAULT_TEMPO_BPM; used whenever a custom
 // progression doesn't specify (or hasn't yet loaded) its own tempo.
@@ -103,17 +103,64 @@ const librarySourceSelect = document.querySelector("#librarySourceSelect");
 const librarySongSelect = document.querySelector("#librarySongSelect");
 const libraryLoadButton = document.querySelector("#libraryLoadButton");
 const canvas = document.querySelector("#game");
+// Place `photo_tete_bonhomme.png` in `static/images/` to use your own
+// photo as the runner's head — a personal picture that's deliberately
+// git-ignored (see .gitignore), so it's only ever present on a machine
+// that put it there and never on a fresh clone or a deployment like
+// Render. Root-relative because Image.src resolves against the page's
+// URL, not this module's location.
+const PERSONAL_HEAD_PHOTO_SRC = "/images/photo_tete_bonhomme.png";
+
+// Picked once per page load and used as the runner's head whenever no
+// personal photo is available and the player isn't in the Chord League
+// (see updateRunnerHead) — a bit of fun instead of a plain placeholder,
+// built from the same SVG avatar system as the League avatar builder
+// rather than hotlinking an actual photo from elsewhere on the internet
+// (unreliable if the link dies, and murky rights/consent for a public
+// deployment).
+function randomAvatar() {
+  const pickTrait = (field) => {
+    const options = AVATAR_TRAITS[field];
+    return options[Math.floor(Math.random() * options.length)].id;
+  };
+  return {
+    skin: pickTrait("skin"),
+    hairStyle: pickTrait("hairStyle"),
+    hairColor: pickTrait("hairColor"),
+    accessory: pickTrait("accessory"),
+    outfit: pickTrait("outfit"),
+    background: pickTrait("background")
+  };
+}
+const sessionRandomAvatar = randomAvatar();
+
 // The runner, the arriving obstacle, particle effects and the parallax
 // ground all live in the game/ modules; this scene is the single canvas
-// entity the rest of app.js talks to. Place `photo_tete_bonhomme.png` in
-// `static/images/` to use your photo as the runner's head — if it's
-// missing, Runner falls back to a built-in placeholder head automatically.
-// Root-relative because Image.src resolves against the page's URL, not
-// this module's location.
+// entity the rest of app.js talks to.
 const scene = new RunnerScene(canvas, {
   arrivalMeterEl,
-  headImageSrc: "/images/photo_tete_bonhomme.png"
+  headImageSrc: PERSONAL_HEAD_PHOTO_SRC,
+  // The personal photo is missing on any machine that hasn't put one at
+  // PERSONAL_HEAD_PHOTO_SRC (Render included) — fall back to the random
+  // avatar rather than Runner's own generic placeholder SVG.
+  onHeadImageError: () => scene.setHeadImage(avatarHeadImageSrc(sessionRandomAvatar))
 });
+
+/**
+ * Refresh the runner's on-canvas head to match the active avatar: the
+ * Chord League player's own avatar while that mode is selected (live,
+ * even before clicking Join, so building the avatar previews it
+ * immediately), or the personal photo otherwise — which itself falls back
+ * to the random session avatar if it fails to load (see the scene's
+ * onHeadImageError above).
+ */
+function updateRunnerHead() {
+  if (playerMode() === "league") {
+    scene.setHeadImage(avatarHeadImageSrc(currentAvatar));
+  } else {
+    scene.setHeadImage(PERSONAL_HEAD_PHOTO_SRC);
+  }
+}
 
 let targetPrompt = null;
 let promptShownAt = 0;
@@ -310,6 +357,7 @@ function setAvatarTrait(field, value) {
   currentAvatar = { ...currentAvatar, [field]: value };
   updateSwatchSelection(field);
   renderAvatarPreview();
+  updateRunnerHead();
 }
 
 /**
@@ -374,6 +422,7 @@ async function joinLeague(name, { silent = false } = {}) {
     currentAvatar = sanitizeAvatar(player.avatar);
     buildAvatarSwatches();
     renderAvatarPreview();
+    updateRunnerHead();
     playerNameInput.value = player.name;
     localStorage.setItem(PLAYER_NAME_STORAGE_KEY, player.name);
     localStorage.setItem(PLAYER_MODE_STORAGE_KEY, "league");
@@ -396,6 +445,7 @@ playerModeEl.addEventListener("change", () => {
     activePlayer = null;
     setPlayerStatus("Local scores only");
     loadStats();
+    updateRunnerHead();
     return;
   }
 
@@ -405,6 +455,9 @@ playerModeEl.addEventListener("change", () => {
     joinLeague(savedName, { silent: true });
   } else {
     setPlayerStatus("Enter a name, then Join.");
+    // Preview the in-progress avatar as the runner's head immediately —
+    // even before Join is clicked — so building it feels live.
+    updateRunnerHead();
   }
 });
 

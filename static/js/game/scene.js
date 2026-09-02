@@ -31,14 +31,16 @@ export class RunnerScene {
    *   style is driven to reflect the obstacle's approach progress (0-100%).
    * @param {string} [options.headImageSrc] - URL of a photo to use as the
    *   runner's head; see Runner.
+   * @param {Function} [options.onHeadImageError] - See Runner's option of
+   *   the same name.
    */
-  constructor(canvas, { arrivalMeterEl, headImageSrc } = {}) {
+  constructor(canvas, { arrivalMeterEl, headImageSrc, onHeadImageError } = {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this.arrivalMeterEl = arrivalMeterEl;
     this.groundY = canvas.height - 58;
 
-    this.runner = new Runner({ x: 46, groundY: this.groundY, headImageSrc });
+    this.runner = new Runner({ x: 46, groundY: this.groundY, headImageSrc, onHeadImageError });
     this.obstacle = new Obstacle({ x: canvas.width + START_X_PADDING });
     this.particles = new ParticleSystem();
 
@@ -102,6 +104,14 @@ export class RunnerScene {
     if (this.arrivalMeterEl) {
       this.arrivalMeterEl.style.width = "0%";
     }
+  }
+
+  /**
+   * Swap the runner's head image at runtime — see Runner.setHeadImage.
+   * @param {string} src - New image URL; a data: URI works fine.
+   */
+  setHeadImage(src) {
+    this.runner.setHeadImage(src);
   }
 
   /** Play the runner's jump + a confetti burst; called when a chord was answered correctly. */

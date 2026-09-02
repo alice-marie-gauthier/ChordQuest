@@ -1,6 +1,7 @@
 import unittest
 
 from models.chords import (
+    CHORD_FAMILIES,
     build_prompt,
     create_prompt_pool,
     family_by_id,
@@ -87,12 +88,113 @@ class ChordRecognitionTests(unittest.TestCase):
         self.assertEqual(chord["symbol"], "C9sus4")
         self.assertEqual(chord["family_id"], "ninthSus4")
 
+    def test_recognizes_augmented_triad(self):
+        chord = recognize_chord([60, 64, 68])
+        self.assertEqual(chord["symbol"], "C+")
+        self.assertEqual(chord["family_id"], "augmented")
+
+    def test_recognizes_diminished_triad(self):
+        # The plain (3-note) diminished triad, distinct from Cdim7 above.
+        chord = recognize_chord([60, 63, 66])
+        self.assertEqual(chord["symbol"], "Cdim")
+        self.assertEqual(chord["family_id"], "diminished")
+
+    def test_augmented_reading_loses_to_a_major_first_inversion(self):
+        # C-Eb-Ab-ish ambiguity: {0,3,8} is both "minor #5 in root position"
+        # and, rotated, an ordinary major triad's first inversion (e.g.
+        # Ab major = Ab-C-Eb; from Eb's perspective that's the same 3
+        # pitch classes as "Eb minor #5"). The two are acoustically
+        # identical — nothing in the notes played can tell them apart — so
+        # a dedicated "minor #5" family was deliberately left out of
+        # CHORD_FAMILIES rather than silently breaking major-triad
+        # inversion detection (see test_detects_inversions). This voicing
+        # resolves as a slash chord instead, which is honestly the more
+        # useful reading anyway: it names the actual bass note.
+        chord = recognize_chord([60, 63, 68])
+        self.assertEqual(chord["symbol"], "G#/C")
+        self.assertEqual(chord["family_id"], "major")
+
+    def test_recognizes_major_flat_five(self):
+        chord = recognize_chord([60, 64, 66])
+        self.assertEqual(chord["symbol"], "Cmajb5")
+        self.assertEqual(chord["family_id"], "majorFlat5")
+
+    def test_recognizes_add4(self):
+        chord = recognize_chord([60, 64, 65, 67])
+        self.assertEqual(chord["symbol"], "Cadd4")
+        self.assertEqual(chord["family_id"], "add4")
+
+    def test_recognizes_sixth_chords(self):
+        self.assertEqual(recognize_chord([60, 64, 67, 69])["symbol"], "C6")
+        self.assertEqual(recognize_chord([60, 63, 67, 69])["symbol"], "Cm6")
+
+    def test_recognizes_altered_dominant_sevenths(self):
+        self.assertEqual(recognize_chord([60, 64, 66, 70])["symbol"], "C7b5")
+        self.assertEqual(recognize_chord([60, 64, 68, 70])["symbol"], "C7#5")
+
+    def test_recognizes_altered_major_sevenths(self):
+        self.assertEqual(recognize_chord([60, 64, 66, 71])["symbol"], "Cmaj7b5")
+        self.assertEqual(recognize_chord([60, 64, 68, 71])["symbol"], "Cmaj7#5")
+
+    def test_new_chord_families_stay_in_their_expected_category(self):
+        by_id = {family.id: family.category for family in CHORD_FAMILIES}
+        self.assertEqual(by_id["augmented"], "major")
+        self.assertEqual(by_id["diminished"], "minor")
+        self.assertEqual(by_id["sixth"], "extensions")
+        self.assertEqual(by_id["minorSixth"], "extensions")
+        self.assertEqual(by_id["add4"], "extensions")
+        self.assertEqual(by_id["dominant7Flat5"], "sevenths")
+        self.assertEqual(by_id["dominant7Sharp5"], "sevenths")
+        self.assertEqual(by_id["major7Flat5"], "sevenths")
+        self.assertEqual(by_id["major7Sharp5"], "sevenths")
+
     def test_creates_prompt_pool_for_selected_categories(self):
         prompts = create_prompt_pool(["minor", "inversions"])
 
         self.assertTrue(any(prompt["category"] == "minor" for prompt in prompts))
         self.assertTrue(any(prompt["category"] == "inversions" for prompt in prompts))
         self.assertTrue(any(prompt["inversion"] == 2 for prompt in prompts))
+
+    def test_inversions_category_only_covers_unambiguously_invertible_triads(self):
+        # major, minor, diminished and major-b5 all round-trip perfectly
+        # through recognize_chord for every inversion (see
+        # test_every_inversions_family_round_trips_through_recognition
+        # below). augmented and sus2/sus4 are deliberately left out: an
+        # augmented triad's inversions are acoustically identical to
+        # another augmented triad in root position, and one of sus2's/
+        # sus4's inversions always reads back as the other's root
+        # position — see the comment on LEARNING_MODULES' "inversions"
+        # entry in models/chords.py.
+        prompts = create_prompt_pool(["inversions"])
+        family_ids = {prompt["family_id"] for prompt in prompts}
+        self.assertEqual(family_ids, {"major", "minor", "diminished", "majorFlat5"})
+
+    def test_every_inversions_family_round_trips_through_recognition(self):
+        # For every family the "Inversions" category actually offers,
+        # playing the exact voicing build_prompt generates for each of the
+        # 3 positions must be recognized with that same family and
+        # inversion index — otherwise the game would ask for an inversion
+        # the player has no way to satisfy.
+        for family_id in ("major", "minor", "diminished", "majorFlat5"):
+            family = family_by_id(family_id)
+            for inversion in (0, 1, 2):
+                prompt = build_prompt("C", family, category="inversions", inversion=inversion)
+                chord = recognize_chord(prompt["midi_notes"])
+                self.assertIsNotNone(chord, f"{family_id} inversion {inversion} was not recognized at all")
+                self.assertEqual(chord["family_id"], family_id, f"{family_id} inversion {inversion}")
+                self.assertEqual(chord["inversion"], inversion, f"{family_id} inversion {inversion}")
+
+    def test_inversion_prompt_symbol_uses_slash_chord_notation(self):
+        # Matches how recognize_chord reports the same voicing once it's
+        # actually played (see test_symbol_carries_slash_chord_notation_for_inversions)
+        # rather than a wordy "- 1st inversion"/"- 2nd inversion" suffix.
+        root_position = build_prompt("A", family_by_id("major"), category="inversions", inversion=0)
+        first_inversion = build_prompt("A", family_by_id("major"), category="inversions", inversion=1)
+        second_inversion = build_prompt("A", family_by_id("major"), category="inversions", inversion=2)
+
+        self.assertEqual(root_position["symbol"], "A")
+        self.assertEqual(first_inversion["symbol"], "A/C#")
+        self.assertEqual(second_inversion["symbol"], "A/E")
 
     def test_create_prompt_pool_falls_back_to_major_for_unknown_categories(self):
         prompts = create_prompt_pool(["not-a-real-category"])
@@ -148,6 +250,20 @@ class ChordSymbolParsingTests(unittest.TestCase):
         self.assertEqual(parse_chord_symbol("CmMaj7")["family_id"], "minorMajor7")
         self.assertEqual(parse_chord_symbol("C7sus4")["family_id"], "dominant7sus4")
         self.assertEqual(parse_chord_symbol("C9sus4")["family_id"], "ninthSus4")
+
+    def test_parses_the_augmented_diminished_and_sixth_chords(self):
+        self.assertEqual(parse_chord_symbol("C+")["family_id"], "augmented")
+        self.assertEqual(parse_chord_symbol("Cdim")["family_id"], "diminished")
+        self.assertEqual(parse_chord_symbol("Cmajb5")["family_id"], "majorFlat5")
+        self.assertEqual(parse_chord_symbol("Cadd4")["family_id"], "add4")
+        self.assertEqual(parse_chord_symbol("C6")["family_id"], "sixth")
+        self.assertEqual(parse_chord_symbol("Cm6")["family_id"], "minorSixth")
+
+    def test_parses_the_altered_seventh_chords(self):
+        self.assertEqual(parse_chord_symbol("C7b5")["family_id"], "dominant7Flat5")
+        self.assertEqual(parse_chord_symbol("C7#5")["family_id"], "dominant7Sharp5")
+        self.assertEqual(parse_chord_symbol("Cmaj7b5")["family_id"], "major7Flat5")
+        self.assertEqual(parse_chord_symbol("Cmaj7#5")["family_id"], "major7Sharp5")
 
     def test_is_forgiving_of_whitespace_and_suffix_casing(self):
         self.assertEqual(parse_chord_symbol("  Cmaj7  ")["family_id"], "major7")

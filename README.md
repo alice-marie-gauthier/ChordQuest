@@ -63,6 +63,15 @@ Pick `Join the Chord League`, build a small avatar (skin tone, hair style and co
 
 League names are matched case/accent-insensitively (`Alice` and `alice` are the same player) and capped at 24 characters. Avatars are built from a small fixed set of trait choices (never free text or an uploaded image) — the backend whitelists every trait value, so a malformed or tampered request just falls back to the default look instead of erroring. Leaderboard, avatar, and mastery data for Chord League players is written to `data/players.json`, created on first join — this file is local to your machine and is git-ignored, so it's never committed.
 
+### The runner's head
+
+Building a Chord League avatar puts it directly on the runner in the game — live, as you pick each trait, not just after clicking `Join`. Switching back to `Practice solo` drops it again.
+
+Outside of that, the head is whichever of these is available, in order:
+
+1. Your own photo at `static/images/photo_tete_bonhomme.png`, if you've put one there — a personal picture, deliberately git-ignored (see `.gitignore`), so it's only ever present on a machine that added it and never on a fresh clone or a deployment like Render.
+2. Otherwise, a random little avatar — the same inline-SVG system as the Chord League builder, picked once per page load. Deliberately not a photo pulled from elsewhere on the internet, which would be unreliable (dead links) and murky rights/consent-wise for something a public deployment serves to everyone.
+
 ## Pausing
 
 Once a run is started, `Pause` freezes the obstacle and stops chords from being scored (right or wrong) without losing your progress; the runner and background animation settle to idle while paused. Click `Resume` to continue exactly where you left off, or `Stop game` to end the run and reset for a new one.
@@ -71,7 +80,7 @@ Once a run is started, `Pause` freezes the obstacle and stops chords from being 
 
 By default the game asks for random chords from your selected categories. To practice a real chord progression instead — your own transcription of a known song, a progression from a lesson, anything — click `Download template` for a one-column CSV (`chord`, then one chord symbol per line), fill it in with your own progression, and click `Upload CSV`. The template itself carries a full notation cheat-sheet as `#`-prefixed comment lines (roots, every chord quality, the duration suffixes below) — those lines are ignored on upload, so you can leave them in or delete them.
 
-Accepted chord symbols are exactly the vocabulary the game itself teaches: a root letter A-G with an optional `#`/`b`, followed by one of `""` (major), `m` (minor), `7`, `maj7`, `m7`, `m7b5`, `dim7`, `mMaj7`, `sus2`, `sus4`, `7sus4`, `add9`, `9`, `9sus4`, `11`, `13` — e.g. `C`, `F#m`, `Bbmaj7`, `Dsus4`, `A7sus4`. Rows that don't match are skipped with a reason shown in the status line rather than failing the whole import; inversions aren't supported in a CSV (every chord loads in root position).
+Accepted chord symbols are exactly the vocabulary the game itself teaches: a root letter A-G with an optional `#`/`b`, followed by one of `""` (major), `+` (augmented), `majb5` (major b5), `m` (minor), `dim` (diminished), `7`, `7b5`, `7#5`, `maj7`, `maj7b5`, `maj7#5`, `m7`, `m7b5`, `dim7`, `mMaj7`, `sus2`, `sus4`, `7sus4`, `add4`, `add9`, `6`, `m6`, `9`, `9sus4`, `11`, `13` — e.g. `C`, `F#m`, `Bbmaj7`, `Dsus4`, `A7sus4`. Rows that don't match are skipped with a reason shown in the status line rather than failing the whole import; inversions aren't supported in a CSV (every chord loads in root position).
 
 Give the upload a `Song title` and, once it parses successfully, it's automatically saved to the **Uploaded Songs** library (see below) so you don't have to re-upload the file next time. The `Random practice` / `Custom progression` choice sits at the top of the panel; picking `Custom progression` is what reveals the upload/library controls in the first place, and once a progression is loaded it steps through the chords in order, looping back to the start when it reaches the end. Click `Clear` to remove the loaded progression and go back to `Random practice`.
 
@@ -127,15 +136,17 @@ static/
   css/
     styles.css      Frontend styling (the shared "sheet music" palette)
   images/
-    photo_tete_bonhomme.png   Runner's head photo (optional; falls back to
-                               a built-in placeholder if missing)
+    photo_tete_bonhomme.png   Optional personal photo for the runner's
+                               head (git-ignored; see "The runner's head"
+                               below for what's shown when it's missing)
   templates/
     chord-progression-template.csv   Downloadable starter file for the
                                       Song Progression CSV import
   js/
     app.js          Input handling, networking, HUD, and game/scene wiring
     avatar.js       Avatar trait tables + inline-SVG avatar renderer, shared
-                     by the avatar builder and the leaderboard/podium
+                     by the avatar builder, the leaderboard/podium, and the
+                     runner's own head (see avatarHeadImageSrc)
     game/           Small canvas game framework (ES modules, no build step)
       engine.js     Fixed-timestep GameLoop + easing/math helpers
       palette.js    Color constants mirroring styles.css's CSS variables

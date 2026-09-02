@@ -38,11 +38,18 @@ export class Runner {
    *   (the runner doesn't move horizontally; the obstacle comes to it).
    * @param {number} [options.groundY] - Y coordinate of the ground line.
    * @param {string} [options.headImageSrc] - URL of a photo to use as the
-   *   head; falls back to a built-in placeholder SVG if it fails to load.
+   *   head; falls back to a built-in placeholder SVG if it fails to load
+   *   (or to onHeadImageError's own choice, if one is given).
+   * @param {Function} [options.onHeadImageError] - Called instead of the
+   *   built-in placeholder whenever the current head image fails to load
+   *   (the initial headImageSrc, or a later setHeadImage() call) — lets
+   *   the caller supply a smarter fallback (e.g. app.js falls back to a
+   *   Chord League/random SVG avatar) instead of the generic placeholder.
    */
-  constructor({ x = 46, groundY = 0, headImageSrc } = {}) {
+  constructor({ x = 46, groundY = 0, headImageSrc, onHeadImageError } = {}) {
     this.x = x;
     this.groundY = groundY;
+    this.onHeadImageError = onHeadImageError || null;
 
     this.state = RunnerState.IDLE;
     this.stateT = 0;
@@ -65,6 +72,10 @@ export class Runner {
       this.headReady = true;
     };
     this.headImage.onerror = () => {
+      if (this.onHeadImageError) {
+        this.onHeadImageError();
+        return;
+      }
       try {
         this.headImage.src = `data:image/svg+xml;utf8,${encodeURIComponent(FALLBACK_HEAD_SVG)}`;
       } catch (error) {
@@ -74,6 +85,18 @@ export class Runner {
     if (headImageSrc) {
       this.headImage.src = headImageSrc;
     }
+  }
+
+  /**
+   * Swap the runner's head image at runtime — e.g. once a Chord League
+   * avatar is built/updated, or a fallback needs to replace an image that
+   * just failed to load (see onHeadImageError). Reuses the same Image
+   * element and its onload/onerror handlers from the constructor.
+   * @param {string} src - New image URL; a data: URI works fine.
+   */
+  setHeadImage(src) {
+    this.headReady = false;
+    this.headImage.src = src;
   }
 
   /**

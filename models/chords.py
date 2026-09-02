@@ -60,9 +60,20 @@ class ChordFamily:
 
 CHORD_FAMILIES = (
     ChordFamily("major", "major", "Major", "", (0, 4, 7), "1-3-5"),
+    ChordFamily("augmented", "major", "Augmented", "+", (0, 4, 8), "1-3-#5"),
+    # "majb5" rather than a bare "b5" suffix: parse_chord_symbol reads a
+    # suffix's own leading "b" as a flat-root accidental (that's how
+    # "Bbm7" parses "Bb" as the root), so a suffix starting with "b" would
+    # make "Cb5" misparse as root "Cb" with a leftover, unrecognized "5".
+    ChordFamily("majorFlat5", "major", "Major b5", "majb5", (0, 4, 6), "1-3-b5"),
     ChordFamily("minor", "minor", "Minor", "m", (0, 3, 7), "1-b3-5"),
+    ChordFamily("diminished", "minor", "Diminished", "dim", (0, 3, 6), "1-b3-b5"),
     ChordFamily("dominant7", "sevenths", "Dominant 7", "7", (0, 4, 7, 10), "1-3-5-b7"),
+    ChordFamily("dominant7Flat5", "sevenths", "Dominant 7 b5", "7b5", (0, 4, 6, 10), "1-3-b5-b7"),
+    ChordFamily("dominant7Sharp5", "sevenths", "Dominant 7 #5", "7#5", (0, 4, 8, 10), "1-3-#5-b7"),
     ChordFamily("major7", "sevenths", "Major 7", "maj7", (0, 4, 7, 11), "1-3-5-7"),
+    ChordFamily("major7Flat5", "sevenths", "Major 7 b5", "maj7b5", (0, 4, 6, 11), "1-3-b5-7"),
+    ChordFamily("major7Sharp5", "sevenths", "Major 7 #5", "maj7#5", (0, 4, 8, 11), "1-3-#5-7"),
     ChordFamily("minor7", "sevenths", "Minor 7", "m7", (0, 3, 7, 10), "1-b3-5-b7"),
     ChordFamily("halfDiminished", "sevenths", "Half-diminished", "m7b5", (0, 3, 6, 10), "1-b3-b5-b7"),
     ChordFamily("diminished7", "sevenths", "Diminished 7", "dim7", (0, 3, 6, 9), "1-b3-b5-bb7"),
@@ -70,7 +81,10 @@ CHORD_FAMILIES = (
     ChordFamily("dominant7sus4", "sevenths", "7sus4", "7sus4", (0, 5, 7, 10), "1-4-5-b7"),
     ChordFamily("sus2", "suspensions", "Suspended 2", "sus2", (0, 2, 7), "1-2-5"),
     ChordFamily("sus4", "suspensions", "Suspended 4", "sus4", (0, 5, 7), "1-4-5"),
+    ChordFamily("add4", "extensions", "Add4", "add4", (0, 4, 5, 7), "1-3-4-5"),
     ChordFamily("add9", "extensions", "Add9", "add9", (0, 4, 7, 14), "1-3-5-9"),
+    ChordFamily("sixth", "extensions", "6th", "6", (0, 4, 7, 9), "1-3-5-6"),
+    ChordFamily("minorSixth", "extensions", "Minor 6th", "m6", (0, 3, 7, 9), "1-b3-5-6"),
     ChordFamily("ninth", "extensions", "9th", "9", (0, 4, 7, 10, 14), "1-3-5-b7-9"),
     ChordFamily("ninthSus4", "extensions", "9sus4", "9sus4", (0, 5, 7, 10, 14), "1-4-5-b7-9"),
     ChordFamily("eleventh", "extensions", "11th", "11", (0, 4, 7, 10, 14, 17), "1-3-5-b7-9-11"),
@@ -107,9 +121,22 @@ LEARNING_MODULES = [
     {
         "id": "inversions",
         "label": CATEGORY_LABELS["inversions"],
+        # Only triads where every inversion is unambiguously identifiable
+        # from the notes alone: augmented is excluded because its
+        # inversions are acoustically identical to some other augmented
+        # triad in root position (it's a symmetric/equal-interval chord),
+        # and sus2/sus4 are excluded because one of their inversions
+        # always reads back as the other suspended chord's root position
+        # (the same ambiguity root_candidates already resolves for a
+        # root-position sus2/sus4 — see recognize_chord). Practicing an
+        # "inversion" the recognizer can never actually confirm would just
+        # be a broken exercise, so those stay available for root-position
+        # practice (Suspensions/Major) without an inversions option.
         "families": [
             {"id": "major", "label": "Major inversions", "suffix": "", "formula": "1-3-5"},
             {"id": "minor", "label": "Minor inversions", "suffix": "m", "formula": "1-b3-5"},
+            {"id": "diminished", "label": "Diminished inversions", "suffix": "dim", "formula": "1-b3-b5"},
+            {"id": "majorFlat5", "label": "Major b5 inversions", "suffix": "majb5", "formula": "1-3-b5"},
         ],
     }
 ]
@@ -377,7 +404,11 @@ def build_prompt(
 
     Returns:
         A ChordPrompt with the root, family, symbol, notes, MIDI notes,
-        inversion, formula and duration.
+        inversion, formula and duration. `symbol` uses standard slash-chord
+        notation for a non-root-position prompt (e.g. "A/C#" for A major
+        voiced with its third at the bottom) rather than a wordy "- 1st
+        inversion" suffix, matching what `recognize_chord` reports once the
+        same chord is actually played (see `_build_recognized_chord`).
     """
     root = pitch_class(root_name)
     pitch_classes = [(root + interval) % 12 for interval in family.intervals]
@@ -387,12 +418,21 @@ def build_prompt(
     if inversion and len(ordered_midi_notes) == 3:
         ordered_midi_notes = ordered_midi_notes[inversion:] + [note + 12 for note in ordered_midi_notes[:inversion]]
 
-    inversion_label = "" if inversion == 0 else f" - {'1st' if inversion == 1 else '2nd'} inversion"
+    # ordered_midi_notes[0] is whichever chord tone is now voiced lowest
+    # (the root itself when inversion is 0, since the rotation above only
+    # runs when inversion is non-zero) — comparing pitch classes rather
+    # than note-name strings since root_name may spell it with a flat
+    # (e.g. "Bb") while NOTE_NAMES only has sharps.
+    bass_pitch_class = ordered_midi_notes[0] % 12
+    symbol = f"{root_name}{family.suffix or ''}"
+    if bass_pitch_class != root:
+        symbol = f"{symbol}/{NOTE_NAMES[bass_pitch_class]}"
+
     return {
         "root": root_name,
         "family_id": family.id,
         "category": category or family.category,
-        "symbol": f"{root_name}{family.suffix or ''}{inversion_label}",
+        "symbol": symbol,
         "notes": [NOTE_NAMES[note % 12] for note in ordered_midi_notes],
         "midi_notes": ordered_midi_notes,
         "inversion": inversion,
@@ -422,7 +462,15 @@ def create_prompt_pool(categories: list[str]) -> list[ChordPrompt]:
 
     for category in selected:
         if category == "inversions":
-            inversion_families = [family_by_id("major"), family_by_id("minor")]
+            # Keep this in sync with LEARNING_MODULES' "inversions" entry
+            # above — see its comment for why augmented/sus2/sus4 are
+            # deliberately left out.
+            inversion_families = [
+                family_by_id("major"),
+                family_by_id("minor"),
+                family_by_id("diminished"),
+                family_by_id("majorFlat5"),
+            ]
             for root_name in ROOTS:
                 for family in inversion_families:
                     for inversion in (0, 1, 2):
@@ -495,8 +543,9 @@ def parse_chord_symbol(symbol: str) -> ChordPrompt:
 
     Only recognizes the exact vocabulary the game itself teaches: a root
     letter A-G, an optional "#"/"b" accidental, and one of the known
-    ChordFamily suffixes ("", "m", "7", "maj7", "m7", "m7b5", "dim7",
-    "mMaj7", "7sus4", "sus2", "sus4", "add9", "9", "9sus4", "11", "13") —
+    ChordFamily suffixes ("", "+", "majb5", "m", "dim", "7", "7b5", "7#5",
+    "maj7", "maj7b5", "maj7#5", "m7", "m7b5", "dim7", "mMaj7", "7sus4",
+    "sus2", "sus4", "add4", "add9", "6", "m6", "9", "9sus4", "11", "13") —
     matching case-insensitively on the suffix. Inversions aren't
     supported; every parsed chord is root position.
 
