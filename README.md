@@ -8,8 +8,7 @@ Adaptive piano chord runner game scripted in Python with a browser UI.
 - Practice chords rooted on natural notes, sharps, and flats.
 - Play with a MIDI keyboard (USB or Bluetooth alike) through the browser Web MIDI API.
 - Play piano sounds with a QWERTZ computer keyboard using `A W S E D F T G Z H U J K`.
-- No MIDI keyboard? An experimental microphone mode listens to an acoustic piano and estimates the notes from the sound itself (see "Microphone" below for what to expect from it).
-- Choose one input mode at a time: MIDI, computer keyboard, or microphone.
+- Choose one input mode at a time: MIDI or computer keyboard.
 - Choose a recognition mode: held chord or arpeggio.
 - Choose the runner speed with a slider before or during the game.
 - Runner game: the arriving chord is the obstacle, and the boy jumps when the requested chord is correct.
@@ -30,22 +29,16 @@ Adaptive piano chord runner game scripted in Python with a browser UI.
 
 The Web MIDI API doesn't distinguish transport — a MIDI keyboard connected by USB and one connected over Bluetooth both just show up as an "input" once the browser has access, so the `MIDI` card covers both. It works in Chrome, Edge, and **Safari 17+ / iOS or iPadOS 17+** (WebKit added Web MIDI support there; older Safari versions don't have it) from `http://127.0.0.1:8000` or any `https://` URL, e.g. a deployed instance — see "Play from a phone or tablet" below; the Web MIDI API requires one of those two, plain `http://` on any other host won't work. Click `MIDI`, allow the permission prompt, and connect/power on the keyboard. If the page says no input is detected, reconnect the cable or power-cycle the keyboard (or re-pair over Bluetooth), then click `Retry MIDI`; the game also refreshes automatically when the browser reports a MIDI connection change.
 
-**Bluetooth MIDI on an iPad**, e.g. a Yamaha P-225 or similar: if you can already see the keyboard from a companion app like Yamaha Smart Pianist, it's paired over Bluetooth MIDI — but that pairing lives at the OS/CoreMIDI level, not inside that one app, so once it's connected, Safari's Web MIDI should see it too, the same as it would a USB keyboard. Bluetooth *MIDI* devices don't show up in the regular Settings → Bluetooth list on iOS/iPadOS the way headphones do; if the keyboard doesn't already show up as an input on the `MIDI` card, open `bluetooth-midi://` in Safari — this triggers iOS's built-in Bluetooth MIDI pairing screen (a system feature, not specific to any one app) where you can select and connect the keyboard directly, without needing Smart Pianist or any other app open.
+**Bluetooth on a Yamaha P-225 (and similar P-series pianos) is audio-only, not MIDI.** Its built-in Bluetooth pairs as `P-225 AUDIO` and exists to stream music *into* the piano's speakers — it doesn't transmit the notes you play, so it will never show up on the `MIDI` card no matter how it's paired. This is a hardware limitation of the piano, not something the browser or ChordQuest can work around. Two ways to get real note data out of a P-225:
+
+- **USB cable (free, most reliable)**: the piano's `USB TO HOST` port carries both MIDI and audio over one cable. Connect it to the tablet (with a USB-C/Lightning adapter if needed) and the `MIDI` card will detect it directly — no Bluetooth involved.
+- **Yamaha UD-BT01 wireless MIDI adaptor (iOS only, sold separately)**: plugs into the same `USB TO HOST` port and adds an actual Bluetooth *MIDI* connection (distinct from the built-in Bluetooth *Audio*). With that adaptor connected, the piano shows up in iOS's built-in Bluetooth MIDI pairing screen — open `bluetooth-midi://` in Safari to reach it — and from there the `MIDI` card can see it wirelessly, the same as a USB keyboard.
+
+If you can see the P-225 from Yamaha Smart Pianist, check which of these two it's actually using (a USB cable, or a UD-BT01 adaptor) — Smart Pianist needs a real MIDI link too, so whichever one it's riding on is the one that'll also work for ChordQuest.
 
 ## Computer Keyboard
 
 Click `Computer keyboard` to play piano sounds with the QWERTZ computer keyboard, or tap the on-screen piano keys shown once this mode is active (they respond to touch/mouse/pen alike). The game listens to `A W S E D F T G Z H U J K` only while this mode is selected.
-
-## Microphone
-
-Click `Microphone` to try detecting chords from an acoustic piano's actual sound instead of a MIDI/keyboard connection — useful when neither is available. **This is experimental and meaningfully less reliable than MIDI or the on-screen keyboard**, so it's worth understanding what it's actually doing before relying on it:
-
-- It analyzes the microphone's audio spectrum with a Harmonic Product Spectrum (a classic, simple DSP technique — not a trained model), looking for frequency peaks backed by a harmonic series and mapping them to the nearest piano notes. There's no dependency to install for this; it's built entirely on the browser's Web Audio API.
-- A real piano note's own overtones can be mistaken for other chord tones, so a 3-4 note chord is meaningfully harder to detect correctly than one note played at a time — don't be surprised if it works better for practicing single notes/intervals than full held chords.
-- Background noise, room acoustics, and how close/loud the piano is to the microphone all matter a lot in practice. A quiet room and a mic placed close to the piano give the best results.
-- Like MIDI, it needs a secure context (`https://` or `localhost`) and an explicit microphone permission grant.
-
-If you have an actual MIDI connection available (even Bluetooth — see above), it'll be far more accurate than the microphone.
 
 ## Recognition Mode
 
@@ -55,6 +48,8 @@ The two modes use different logic to resolve the chord's root when the notes pla
 
 - `Held chord` always trusts the lowest sounding note. MIDI note-on messages for a physically simultaneous chord arrive in a hardware-dependent, effectively random order, so play order is not usable there — only the bass note reliably tells you the root of a plaque chord.
 - `Arpeggio` trusts the first note played, since that ordering is musically meaningful when notes are played one at a time.
+
+Either way, the `Detected` readout reflects exactly which key is physically lowest on the keyboard: if the root isn't the bass note — e.g. playing A-C#-E with C# at the bottom — it's shown as a slash chord, `A/C#`, not just `A`. This uses standard slash-chord notation and matches how the chord actually sits on the keys, the same way it would if you looked it up in a real chord chart.
 
 ## Mastery Tracking
 
@@ -232,7 +227,7 @@ In the browser:
 1. Pick `Practice solo` or `Join the Chord League` (build an avatar, enter a name, click `Join`).
 2. Select the chord categories to practice.
 3. Choose `Held chord` or `Arpeggio`.
-4. Click the `MIDI`, `Computer keyboard`, or `Microphone` card to pick your input device.
+4. Click the `MIDI` or `Computer keyboard` card to pick your input device.
 5. Choose the speed with the slider.
 6. Click `Start game`.
 7. Play the displayed chord before the arriving chord reaches the boy.
@@ -261,7 +256,7 @@ Two free-tier things worth knowing before you rely on this:
 - **The service sleeps after ~15 minutes idle** and takes a few seconds to wake up on the next request — normal for Render's free plan, not a bug.
 - **The filesystem is ephemeral.** `data/players.json` (Chord League scores/avatars) and `data/uploaded_songs.json` (the Uploaded Songs library) reset on every redeploy or restart unless you add a paid persistent disk. `library/curated/` ("My Library") is unaffected, since that's part of the git-tracked code rather than runtime data.
 
-MIDI needs a secure context to work at all (`https://` or `localhost`), which Render's URL satisfies automatically — no certificate setup needed. Web MIDI works in Chrome on Android and in Safari on iOS/iPadOS 17+ (see "MIDI (USB or Bluetooth)" above, including how to pair a Bluetooth keyboard like a Yamaha P-225). Without a MIDI keyboard on hand at all, pick `Computer keyboard` and tap the on-screen piano keys — they respond to touch/pointer input already — or try the experimental `Microphone` mode (see "Microphone" above).
+MIDI needs a secure context to work at all (`https://` or `localhost`), which Render's URL satisfies automatically — no certificate setup needed. Web MIDI works in Chrome on Android and in Safari on iOS/iPadOS 17+ (see "MIDI (USB or Bluetooth)" above, including what it takes to get real MIDI — not just Bluetooth Audio — out of a piano like a Yamaha P-225). Without a MIDI keyboard on hand at all, pick `Computer keyboard` and tap the on-screen piano keys — they respond to touch/pointer input already.
 
 ### Installing it as a Home Screen icon
 

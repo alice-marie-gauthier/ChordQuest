@@ -32,13 +32,29 @@ class ChordRecognitionTests(unittest.TestCase):
         self.assertEqual(first["inversion"], 1)
         self.assertEqual(second["inversion"], 2)
 
+    def test_symbol_carries_slash_chord_notation_for_inversions(self):
+        # C major (C-E-G) voiced with E at the bottom is "C/E", not just
+        # "C" — the displayed symbol must reflect the actual bass note the
+        # way it's physically played on the keyboard, matching standard
+        # slash-chord notation.
+        self.assertEqual(recognize_chord([64, 67, 72])["symbol"], "C/E")
+        self.assertEqual(recognize_chord([67, 72, 76])["symbol"], "C/G")
+        # A major (A-C#-E) voiced with C# in the bass is "A/C#".
+        self.assertEqual(recognize_chord([61, 64, 69])["symbol"], "A/C#")
+        # Root position never gets a slash suffix.
+        self.assertEqual(recognize_chord([48, 52, 67])["symbol"], "C")
+
     def test_recognizes_suspended_chords(self):
         self.assertEqual(recognize_chord([60, 62, 67])["symbol"], "Csus2")
         self.assertEqual(recognize_chord([60, 65, 67])["symbol"], "Csus4")
 
     def test_arpeggio_mode_uses_played_root_for_ambiguous_suspended_chords(self):
         self.assertEqual(recognize_chord([62, 64, 69], mode="arpeggio")["symbol"], "Dsus2")
-        self.assertEqual(recognize_chord([69, 62, 64], mode="arpeggio")["symbol"], "Asus4")
+        # Root is still decided by the first note played (A), but D ends up
+        # the lowest-pitched note actually played here, so the symbol still
+        # carries the slash suffix — the bass note is about the physical
+        # keyboard, not which note was chosen as the root for matching.
+        self.assertEqual(recognize_chord([69, 62, 64], mode="arpeggio")["symbol"], "Asus4/D")
 
     def test_held_mode_uses_bass_note_regardless_of_note_arrival_order(self):
         # Simulates a plaque/block chord: USB MIDI note-on order for

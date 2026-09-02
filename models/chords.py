@@ -250,6 +250,47 @@ def detect_inversion(midi_notes: list[int], root: int, chord_notes: list[int]) -
     return index if 0 < index < len(ordered) else 0
 
 
+def _build_recognized_chord(
+    midi_notes: list[int], root: int, family: ChordFamily, notes: list[int]
+) -> RecognizedChord:
+    """Build the RecognizedChord result for a matched root/family pair.
+
+    The symbol gets a "/<bass note>" suffix whenever the actual lowest
+    sounding key isn't the chord's root — e.g. playing A-C#-E on the piano
+    (A major with its third, C#, physically at the bottom) is reported as
+    "A/C#", not just "A", matching standard slash-chord notation and how
+    the chord genuinely sits on the keyboard. This mirrors `inversion`
+    (computed the same way, from the same bass note) rather than which
+    pitch class ended up chosen as the root for matching purposes.
+
+    Args:
+        midi_notes: The raw MIDI notes played, in any order/octave — used
+            to find the actual bass (lowest sounding) note.
+        root: Pitch class (0-11) of the matched chord's root.
+        family: The matched ChordFamily.
+        notes: The chord's distinct pitch classes (0-11), including the root.
+
+    Returns:
+        A RecognizedChord with root, family_id, quality, symbol, notes and
+        inversion.
+    """
+    root_name = NOTE_NAMES[root]
+    symbol = f"{root_name}{family.suffix or ''}"
+
+    bass = normalize_midi_note(min(midi_notes)) if midi_notes else root
+    if bass != root:
+        symbol = f"{symbol}/{NOTE_NAMES[bass]}"
+
+    return {
+        "root": root_name,
+        "family_id": family.id,
+        "quality": family.label,
+        "symbol": symbol,
+        "notes": [NOTE_NAMES[note] for note in notes],
+        "inversion": detect_inversion(midi_notes, root, notes),
+    }
+
+
 def recognize_chord(midi_notes: list[int], mode: str = "held") -> RecognizedChord | None:
     """Identify the chord formed by a set of played MIDI notes.
 
@@ -267,7 +308,10 @@ def recognize_chord(midi_notes: list[int], mode: str = "held") -> RecognizedChor
     Returns:
         A RecognizedChord with root, family_id, quality, symbol, notes and
         inversion, or None if fewer than 3 distinct pitch classes were
-        played or no chord family matches.
+        played or no chord family matches. `symbol` carries a "/<bass>"
+        slash-chord suffix whenever the lowest sounding note isn't the
+        root (see `_build_recognized_chord`), e.g. "A/C#" for A major
+        voiced with its third at the bottom.
     """
     notes = unique_pitch_classes(midi_notes)
 
@@ -286,17 +330,7 @@ def recognize_chord(midi_notes: list[int], mode: str = "held") -> RecognizedChor
         )
 
         if family:
-            root_name = NOTE_NAMES[root]
-            symbol = f"{root_name}{family.suffix or ''}"
-
-            return {
-                "root": root_name,
-                "family_id": family.id,
-                "quality": family.label,
-                "symbol": symbol,
-                "notes": [NOTE_NAMES[note] for note in notes],
-                "inversion": detect_inversion(midi_notes, root, notes),
-            }
+            return _build_recognized_chord(midi_notes, root, family, notes)
 
     # If no exact match, fall back to tolerant matching. This handles cases
     # where an extension is present (extra pitch-classes) or the root tone
@@ -314,17 +348,7 @@ def recognize_chord(midi_notes: list[int], mode: str = "held") -> RecognizedChor
         )
 
         if family:
-            root_name = NOTE_NAMES[root]
-            symbol = f"{root_name}{family.suffix or ''}"
-
-            return {
-                "root": root_name,
-                "family_id": family.id,
-                "quality": family.label,
-                "symbol": symbol,
-                "notes": [NOTE_NAMES[note] for note in notes],
-                "inversion": detect_inversion(midi_notes, root, notes),
-            }
+            return _build_recognized_chord(midi_notes, root, family, notes)
 
     return None
 

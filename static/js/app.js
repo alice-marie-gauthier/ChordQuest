@@ -69,8 +69,6 @@ const stopButton = document.querySelector("#stopButton");
 const midiButton = document.querySelector("#midiButton");
 const midiButtonLabel = document.querySelector("#midiButtonLabel");
 const keyboardButton = document.querySelector("#keyboardButton");
-const micButton = document.querySelector("#micButton");
-const micButtonLabel = document.querySelector("#micButtonLabel");
 const inputStatusEl = document.querySelector("#inputStatus");
 const speedSlider = document.querySelector("#speedSlider");
 const speedValueEl = document.querySelector("#speedValue");
@@ -140,7 +138,6 @@ let recognitionTimer = null;
 let midiAccess = null;
 let inputMode = null;
 let midiReady = false;
-let micReady = false;
 let keyboardAudioContext = null;
 let keyboardMasterGain = null;
 let lastWrongSoundAt = 0;
@@ -1599,10 +1596,6 @@ async function startGame() {
     statusEl.textContent = "No MIDI input detected.";
     return;
   }
-  if (inputMode === "microphone" && !micReady) {
-    statusEl.textContent = "Microphone not ready yet.";
-    return;
-  }
 
   score = 0;
   updateSpeedFromSlider();
@@ -1637,27 +1630,19 @@ function stopGame() {
 }
 
 /**
- * Switch the active input device and update the three input-mode cards'
+ * Switch the active input device and update the two input-mode cards'
  * selected styling to match. Also reveals the game/HUD/keys/mastery/
  * leaderboard area below, which stays hidden with no placeholder text
  * until this — the last un-set parameter — happens. The on-screen piano
  * keys only make sense as an input surface in "Computer keyboard" mode —
- * with a real MIDI keyboard plugged in (or a microphone) they'd just be
- * redundant — so they (and their "Keyboard: A W S..." caption) are
- * shown/hidden to match. Leaving microphone mode also stops the mic
- * stream/analysis loop (see stopMicrophone()) so it doesn't keep
- * listening — and showing the browser's "mic in use" indicator — in the
- * background.
- * @param {"midi"|"keyboard"|"microphone"} mode - The input mode to switch to.
+ * with a real MIDI keyboard plugged in they'd just be redundant — so they
+ * (and their "Keyboard: A W S..." caption) are shown/hidden to match.
+ * @param {"midi"|"keyboard"} mode - The input mode to switch to.
  */
 function setInputMode(mode) {
-  if (inputMode === "microphone" && mode !== "microphone") {
-    stopMicrophone();
-  }
   inputMode = mode;
   midiButton.classList.toggle("selected", mode === "midi");
   keyboardButton.classList.toggle("selected", mode === "keyboard");
-  micButton.classList.toggle("selected", mode === "microphone");
   playAreaEl.hidden = false;
   keysEl.hidden = mode !== "keyboard";
   keyboardGuideEl.hidden = mode !== "keyboard";
@@ -1754,7 +1739,6 @@ function updateMidiStatus() {
 async function enableMidi() {
   setInputMode("midi");
   midiReady = false;
-  micReady = false;
   clearActiveNotes();
 
   if (!navigator.requestMIDIAccess) {
@@ -1778,204 +1762,10 @@ async function enableMidi() {
   }
 }
 
-// --- Microphone input (experimental) ---------------------------------
-//
-// Unlike MIDI/keyboard input, which report discrete note-on/note-off
-// events from hardware, a microphone only gives a continuous audio
-// waveform — nothing tells us directly which keys are down. This section
-// estimates it from the sound alone using the Harmonic Product Spectrum
-// (HPS) technique: a note's fundamental frequency also has energy at every
-// integer multiple of itself (its harmonics/overtones), so multiplying the
-// spectrum by copies of itself compressed 2x, 3x, 4x... amplifies true
-// fundamentals and suppresses everything that isn't backed by a harmonic
-// series. This is still nowhere near reliable polyphonic transcription —
-// a real chord's own harmonics can easily be mistaken for other chord
-// tones, and background noise or a quiet/distant mic makes it worse — so
-// treat this mode as a rough, best-effort fallback for when MIDI genuinely
-// isn't available, not a MIDI-equivalent. It tends to do noticeably better
-// on one sustained note at a time than a full held chord.
-
-const MIC_FFT_SIZE = 8192;
-const MIC_NUM_HARMONICS = 5;
-const MIC_MIN_HZ = 80; // below the piano notes that matter for chord ID
-const MIC_MAX_FUNDAMENTAL_HZ = 1050; // ~C6; higher chord tones are covered by their own fundamentals anyway
-const MIC_MAX_CANDIDATES = 6;
-// A detected peak must reach this fraction of the frame's strongest peak
-// to count — filters out noise-floor bumps without an absolute,
-// device/gain-specific volume threshold.
-const MIC_RELATIVE_THRESHOLD = 0.12;
-const MIC_ANALYSIS_INTERVAL_MS = 120;
-
-let micStream = null;
-let micAudioContext = null;
-let micAnalyser = null;
-let micFrequencyData = null;
-let micIntervalId = null;
-let micActiveNotes = new Set();
-
-/**
- * Convert a frequency to the nearest MIDI note number.
- * @param {number} frequencyHz - Frequency in Hz.
- * @returns {number} The nearest MIDI note number (69 = A4 = 440Hz).
- */
-function midiNoteFromFrequency(frequencyHz) {
-  return Math.round(69 + 12 * Math.log2(frequencyHz / 440));
-}
-
-/**
- * Estimate which notes are currently sounding from one frame of
- * frequency-domain data, via a Harmonic Product Spectrum. See the
- * "Microphone input" comment above for the technique and its limits.
- * @param {Float32Array} decibels - getFloatFrequencyData() output.
- * @param {number} sampleRate - The AudioContext's sample rate.
- * @returns {number[]} Candidate MIDI note numbers, in the piano range.
- */
-function detectPitchesFromSpectrum(decibels, sampleRate) {
-  const binHz = sampleRate / MIC_FFT_SIZE;
-  const numBins = decibels.length;
-  const magnitude = new Float32Array(numBins);
-  for (let i = 0; i < numBins; i += 1) {
-    magnitude[i] = Math.pow(10, decibels[i] / 20);
-  }
-
-  const minBin = Math.max(1, Math.floor(MIC_MIN_HZ / binHz));
-  const maxBin = Math.min(Math.floor(numBins / MIC_NUM_HARMONICS), Math.floor(MIC_MAX_FUNDAMENTAL_HZ / binHz));
-  if (maxBin <= minBin) {
-    return [];
-  }
-
-  const hps = new Float32Array(maxBin - minBin);
-  let maxValue = 0;
-  for (let bin = minBin; bin < maxBin; bin += 1) {
-    let product = magnitude[bin];
-    for (let harmonic = 2; harmonic <= MIC_NUM_HARMONICS; harmonic += 1) {
-      product *= magnitude[bin * harmonic];
-    }
-    hps[bin - minBin] = product;
-    if (product > maxValue) {
-      maxValue = product;
-    }
-  }
-  if (maxValue <= 0) {
-    return [];
-  }
-
-  const threshold = maxValue * MIC_RELATIVE_THRESHOLD;
-  const peaks = [];
-  for (let i = 1; i < hps.length - 1; i += 1) {
-    if (hps[i] >= threshold && hps[i] > hps[i - 1] && hps[i] >= hps[i + 1]) {
-      peaks.push({ bin: i + minBin, value: hps[i] });
-    }
-  }
-  peaks.sort((a, b) => b.value - a.value);
-
-  const notes = new Set();
-  for (const peak of peaks.slice(0, MIC_MAX_CANDIDATES)) {
-    const note = midiNoteFromFrequency(peak.bin * binHz);
-    if (note >= 21 && note <= 108) {
-      notes.add(note);
-    }
-  }
-  return [...notes];
-}
-
-/**
- * Poll the microphone's current spectrum, translate it into candidate
- * notes, and diff against the previous frame's set — feeding the result
- * through noteOn()/noteOff() so the rest of the app (recognition,
- * scoring, mastery) treats it exactly like a MIDI or keyboard note
- * stream, with no special-casing needed elsewhere.
- */
-function analyzeMicFrame() {
-  if (inputMode !== "microphone" || !micAnalyser) {
-    return;
-  }
-
-  micAnalyser.getFloatFrequencyData(micFrequencyData);
-  const detected = new Set(detectPitchesFromSpectrum(micFrequencyData, micAudioContext.sampleRate));
-
-  detected.forEach((note) => {
-    if (!micActiveNotes.has(note)) {
-      noteOn(note);
-    }
-  });
-  micActiveNotes.forEach((note) => {
-    if (!detected.has(note)) {
-      noteOff(note);
-    }
-  });
-  micActiveNotes = detected;
-}
-
-/** Stop the microphone stream/analysis loop and release the hardware mic. */
-function stopMicrophone() {
-  if (micIntervalId) {
-    window.clearInterval(micIntervalId);
-    micIntervalId = null;
-  }
-  if (micStream) {
-    micStream.getTracks().forEach((track) => track.stop());
-    micStream = null;
-  }
-  if (micAudioContext) {
-    micAudioContext.close().catch(() => {});
-    micAudioContext = null;
-  }
-  micAnalyser = null;
-  micFrequencyData = null;
-  micReady = false;
-  micActiveNotes.forEach((note) => noteOff(note));
-  micActiveNotes = new Set();
-}
-
-/**
- * Switch to microphone input mode: request mic access and start the
- * analysis loop. Experimental — see the "Microphone input" comment above
- * for why this can't match MIDI's reliability, especially on full chords.
- * @returns {Promise<void>}
- */
-async function enableMicrophone() {
-  setInputMode("microphone");
-  midiReady = false;
-  micReady = false;
-  clearActiveNotes();
-
-  if (!navigator.mediaDevices?.getUserMedia) {
-    statusEl.textContent = "Microphone not supported in this browser.";
-    inputStatusEl.textContent = "Unsupported browser";
-    return;
-  }
-
-  inputStatusEl.textContent = "Requesting microphone access…";
-
-  try {
-    micStream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
-    });
-    micAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const source = micAudioContext.createMediaStreamSource(micStream);
-    micAnalyser = micAudioContext.createAnalyser();
-    micAnalyser.fftSize = MIC_FFT_SIZE;
-    micAnalyser.smoothingTimeConstant = 0.6;
-    source.connect(micAnalyser);
-    micFrequencyData = new Float32Array(micAnalyser.frequencyBinCount);
-    micIntervalId = window.setInterval(analyzeMicFrame, MIC_ANALYSIS_INTERVAL_MS);
-
-    micReady = true;
-    inputStatusEl.textContent = "Listening via microphone";
-    statusEl.textContent = "Microphone ready — play close to the mic in a quiet room for best results.";
-  } catch (error) {
-    const denied = error?.name === "SecurityError" || error?.name === "NotAllowedError";
-    inputStatusEl.textContent = denied ? "Permission denied" : "Connection failed";
-    statusEl.textContent = denied ? "Allow microphone access, then retry." : "Could not access the microphone.";
-  }
-}
-
 /** Switch to computer-keyboard input mode and prepare the audio context. */
 function enableKeyboard() {
   setInputMode("keyboard");
   midiReady = false;
-  micReady = false;
   clearActiveNotes();
   createKeyboardAudio();
   inputStatusEl.textContent = "Keyboard active";
@@ -2064,7 +1854,6 @@ pauseButton.addEventListener("click", togglePause);
 stopButton.addEventListener("click", stopGame);
 midiButton.addEventListener("click", enableMidi);
 keyboardButton.addEventListener("click", enableKeyboard);
-micButton.addEventListener("click", enableMicrophone);
 speedSlider.addEventListener("input", updateSpeedFromSlider);
 // The Wake Lock API auto-releases whenever the tab is hidden (switching
 // apps, locking the screen); re-request it once the player comes back, but
