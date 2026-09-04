@@ -33,6 +33,15 @@
             </svg>
           </span>
           Player
+          <span class="info-badge">
+            <button type="button" class="info-trigger" aria-label="What does Player mean?">i</button>
+            <div class="info-tooltip" role="tooltip">
+              <ul class="info-tooltip-list">
+                <li><strong>Practice solo</strong> — play on this device only. Your chord mastery stats are still tracked and saved, but scores never appear on the shared leaderboard.</li>
+                <li><strong>Join Chord League</strong> — build a small avatar and pick a name, then every correct chord adds to your total on a shared, ranked leaderboard everyone can see.</li>
+              </ul>
+            </div>
+          </span>
         </span>
         <div class="player-mode" id="playerMode">
           <label>
@@ -54,7 +63,7 @@
                 <rect x="32" y="30" width="12" height="12" rx="2" fill="currentColor" opacity="0.55" />
               </svg>
             </span>
-            <span class="option-text"><strong>Join the Chord League</strong><small>Ranked</small></span>
+            <span class="option-text"><strong>Join Chord League</strong><small>Ranked</small></span>
           </label>
         </div>
         <div class="player-join" id="playerJoin" hidden>
@@ -108,6 +117,27 @@
             </svg>
           </span>
           Song progression
+          <span class="info-badge">
+            <button type="button" class="info-trigger" aria-label="What does Song progression mean?">i</button>
+            <div class="info-tooltip" role="tooltip">
+              <ul class="info-tooltip-list">
+                <li>
+                  <strong>Random practice</strong> — chords are drawn randomly, set up by:
+                  <ul class="info-tooltip-sublist">
+                    <li><strong>Chord categories</strong> — Major, Minor, 7th Chords, Suspensions, Extensions, Inversions; pick which to include below, and open any one of them to narrow it down to specific qualities.</li>
+                    <li><strong>Recognition mode</strong> — Held chord: play every note at once, like a real chord. Arpeggio: play the notes one after another; the game remembers them briefly so it can still recognize the chord.</li>
+                  </ul>
+                </li>
+                <li>
+                  <strong>Custom progression</strong> — practice a real song's chords in order, from:
+                  <ul class="info-tooltip-sublist">
+                    <li><strong>Upload CSV</strong> — download the blank template below, fill it in with your own chords, and upload it.</li>
+                    <li><strong>Library</strong> — or skip that and just pick an already-saved song from My Library / Uploaded Songs.</li>
+                  </ul>
+                </li>
+              </ul>
+            </div>
+          </span>
         </span>
 
         <div class="recognition-mode" id="progressionMode">
@@ -278,6 +308,16 @@
               </svg>
             </span>
             Input device
+            <span class="info-badge">
+              <button type="button" class="info-trigger" aria-label="What does Input device mean?">i</button>
+              <div class="info-tooltip" role="tooltip">
+                <ul class="info-tooltip-list">
+                  <li><strong>MIDI</strong> — connect a real MIDI keyboard (USB or Bluetooth) and the browser detects it automatically. Whatever notes you actually press are what gets recognized as the chord.</li>
+                  <li><strong>Computer keyboard</strong> — no MIDI keyboard needed: play with A W S E D F T G Z H U J K on your own keyboard, or tap the on-screen piano keys shown once this mode is active.</li>
+                  <li><strong>Speed</strong> — the slider just below sets how fast the chord track scrolls, shown as a BPM tempo; drag it any time, even mid-run.</li>
+                </ul>
+              </div>
+            </span>
           </span>
           <div class="input-mode-grid">
             <button class="input-mode-card" id="midiButton" type="button">
@@ -321,7 +361,7 @@
                 </span>
                 Speed
               </span>
-              <strong id="speedValue">2.8</strong>
+              <strong id="speedValue">90 BPM</strong>
             </span>
             <input id="speedSlider" type="range" min="0.5" max="7" step="0.1" value="2.8" />
           </label>

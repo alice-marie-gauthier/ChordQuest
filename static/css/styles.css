@@ -5,15 +5,11 @@
  * or its lighter tint) rather than a busier multi-hue scheme. Wine red is
  * kept only for its semantic danger/miss meaning (mirrors the red accent
  * in those same tools). Typography is a plain, bold system sans
- * throughout — no serif, no decorative display font.
- *
- * The one deliberate exception is the "candy" set below (teal, mustard,
- * lavender, coral, sky, alongside wine): one fixed hue per chord category,
- * used only for the Chord categories cards and their fine-tune subtypes
- * (see .category[data-id] in this file) — mirrors the same six hues
- * game/palette.js's CANDY_PALETTE uses for the arriving chord plaques, so
- * a category's color identity is consistent between the setup screen and
- * the game itself, instead of every category card looking alike.
+ * throughout — no serif, no decorative display font. Every checkbox/radio
+ * card on the page — including the Chord categories cards and their
+ * fine-tune drawers — shares this one brown accent; only game/palette.js's
+ * CANDY_PALETTE (a separate six-hue set, one canvas-only file) breaks from
+ * it, for the arriving chord plaques in the game itself.
  */
 :root {
   --paper: #ffffff;
@@ -26,19 +22,10 @@
   --brown: #895129;
   --brown-deep: #6b3f1f;
   --brown-soft: #f1e3d5;
+  --brown-light: #c08f5c;
   --wine: #7c2d3a;
   --wine-deep: #5c1f29;
   --wine-soft: #f2dadd;
-  --teal-deep: #1f5c4e;
-  --teal-soft: #d7ece7;
-  --mustard-deep: #8a6a12;
-  --mustard-soft: #f7ecc9;
-  --lavender-deep: #4a2f7c;
-  --lavender-soft: #e6def5;
-  --coral-deep: #a8431b;
-  --coral-soft: #fbe0d4;
-  --sky-deep: #1f4f7c;
-  --sky-soft: #d9e8f7;
   --forest: #3c6e58;
   --go-light: #8fd4a0;
   --go-light-deep: #5fae74;
@@ -153,6 +140,7 @@ h1 {
 .play-row > div > span,
 .player-panel > span,
 .mastery-panel-header > span {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -185,20 +173,33 @@ h1 {
   color: var(--brown-deep);
 }
 
-/* A fixed 3-column grid for the 6 main categories, plain checkbox cards
-   (no icon, one shared accent color — see .category below) exactly like
-   every other checkbox/radio card on the page. Checking a category
-   doesn't touch this grid — it only opens that category's own section in
-   its row's drawer right below it (see .category-subtypes-drawer and
-   updateSubtypesDrawer() in app.js), so the cards themselves never
-   resize/reflow no matter what's selected. */
+/* A fluid grid of .category-cell wrappers for the 6 main categories — as
+   many ~300px columns as actually fit the current page width, down to 1,
+   continuously rather than at fixed breakpoints (see the grid-template-
+   columns rule itself). Each cell stacks its own .category card and (once
+   checked) its .category-subtypes-drawer vertically (see the
+   .category-cell rule below), so a category's drawer always attaches
+   directly under its own card without affecting any other cell's grid
+   position — see buildCategoryInputs()/updateSubtypesDrawer() in app.js. */
 .category-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  /* Fluid rather than stepped: however many 300px-ish columns actually
+     fit the current page width, continuously, down to 1 — not just fixed
+     3/2/1 breakpoints. main's own max-width already keeps this from ever
+     exceeding 3 columns on a normal desktop window (see the "main" rule),
+     so this only ever grows past 3 on an unusually wide viewport. */
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
   gap: 8px;
+  align-items: start;
+}
+
+.category-cell {
+  display: flex;
+  flex-direction: column;
 }
 
 .category {
+  position: relative;
   display: flex;
   min-height: 48px;
   gap: 8px;
@@ -231,144 +232,216 @@ h1 {
   accent-color: var(--brown);
 }
 
-/* One fixed accent per category, used only by that category's own drawer
-   section/chips below (see .subtype-section/.subtype-chip) — mirrors
-   game/palette.js's CANDY_PALETTE (see the :root comment at the top of
-   this file), so a narrowed-down chip still reads as belonging to its
-   category even though the category card itself is plain. */
-.subtype-section[data-category="major"] {
-  --cat-deep: var(--wine-deep);
-  --cat-soft: var(--wine-soft);
+/* The small "i" info badge in a section header's top-right corner (see
+   the ".progression-panel > span" rule's group above, which already
+   carries position:relative for this), and its explanation tooltip — one
+   per section (Player, Song progression, Input device), each listing
+   every option that section actually offers rather than a single generic
+   blurb (see the hand-written markup in index.html). A plain italic "i"
+   in a circle, shown/hidden on hover or focus for free, and toggled by
+   app.js's single delegated click handler for touch devices where hover
+   isn't reachable (see .info-badge.is-open below). */
+.info-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
 }
 
-.subtype-section[data-category="minor"] {
-  --cat-deep: var(--sky-deep);
-  --cat-soft: var(--sky-soft);
+.info-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Overrides the global button{} rule's min-height:46px below — without
+     this, min-height would win over the 17px height and blow this tiny
+     circular trigger up to full button size. */
+  min-height: 0;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: 1px solid var(--ink-soft);
+  border-radius: 50%;
+  background: var(--paper-card);
+  color: var(--ink-soft);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 0.68rem;
+  font-style: italic;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+  transition: border-color 120ms ease, color 120ms ease;
 }
 
-.subtype-section[data-category="sevenths"] {
-  --cat-deep: var(--mustard-deep);
-  --cat-soft: var(--mustard-soft);
+.info-trigger:hover,
+.info-trigger:focus-visible {
+  border-color: var(--brown);
+  color: var(--brown);
 }
 
-.subtype-section[data-category="suspensions"] {
-  --cat-deep: var(--lavender-deep);
-  --cat-soft: var(--lavender-soft);
+.info-tooltip {
+  position: absolute;
+  top: 22px;
+  right: 0;
+  z-index: 3;
+  width: max-content;
+  /* Wide enough to read comfortably as prose/bullets rather than a
+     narrow, wrapped-every-3-words column — capped against the viewport
+     width so it can never overflow off-screen on a phone. The badge this
+     hangs off of sits at a card's own top-right corner, itself close to
+     the viewport's right edge on a narrow screen, and this is right-
+     anchored to that badge (see .info-tooltip's `right: 0` above) — so
+     the safety margin has to account for that offset too, not just a
+     flat page margin, or the tooltip's own left edge can still spill
+     past x=0 even though its width alone respects the viewport. */
+  max-width: min(360px, calc(100vw - 48px));
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper-card);
+  box-shadow: 0 4px 10px var(--shadow);
+  color: var(--ink);
+  font-size: 0.74rem;
+  font-weight: 400;
+  line-height: 1.4;
+  text-transform: none;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  pointer-events: none;
 }
 
-.subtype-section[data-category="extensions"] {
-  --cat-deep: var(--coral-deep);
-  --cat-soft: var(--coral-soft);
+/* Each tooltip's entries are a bullet list of "option — explanation"
+   items (one per choice the card it's attached to actually offers)
+   rather than one generic blurb or a wall of unbulleted paragraphs. */
+.info-tooltip-list {
+  margin: 0;
+  padding-left: 16px;
 }
 
-.subtype-section[data-category="inversions"] {
-  --cat-deep: var(--teal-deep);
-  --cat-soft: var(--teal-soft);
+.info-tooltip-list li {
+  margin-bottom: 8px;
 }
 
-/* One drawer per row of 3 category cards (see buildCategoryInputs() in
-   app.js), inserted as a grid item right after its row so it reads as
-   belonging to those specific categories, spanning the full grid width
-   but mirroring the same 3-column layout as the row above it. Purely a
-   layout grid — no border/background of its own — since each checked
-   category's .subtype-section (placed in the same column as its own
-   card, see updateSubtypesDrawer()'s inline grid-column) is its own
-   separate, self-bordered rectangle rather than one shared block. */
+.info-tooltip-list li:last-child {
+  margin-bottom: 0;
+}
+
+/* A sub-bullet nested one level under a top-level entry (e.g. "Chord
+   categories"/"Recognition mode" under "Random practice") — shows that
+   containment directly through indentation/nesting rather than a
+   separate, disconnected section, so it's clear those belong to the
+   option they're indented under. */
+.info-tooltip-sublist {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  list-style-type: circle;
+}
+
+.info-tooltip-sublist li {
+  margin-bottom: 4px;
+}
+
+.info-tooltip-sublist li:last-child {
+  margin-bottom: 0;
+}
+
+.info-tooltip strong {
+  color: var(--brown-deep);
+}
+
+.info-badge:hover .info-tooltip,
+.info-trigger:focus-visible + .info-tooltip,
+.info-badge.is-open .info-tooltip {
+  visibility: visible;
+  opacity: 1;
+  /* Otherwise a long tooltip's own overflow-y:auto scrollbar can't
+     actually be scrolled — pointer-events stays "none" while hidden only
+     to let clicks pass through it before it's shown. */
+  pointer-events: auto;
+}
+
+/* While a category's drawer is open, flatten its card's bottom corners so
+   the card and the drawer below it read as one continuous, attached
+   shape instead of two separate boxes with a gap. */
+.category-cell:has(.category-subtypes-drawer:not([hidden])) > .category {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* One drawer per category with a fine-tune breakdown (see
+   buildCategoryInputs() in app.js): a plain white rectangle in the same
+   accent as the checked category card above it, its top edge flush
+   against that card's bottom edge (no border, no radius, a -1px overlap
+   to merge the two borders into one line) so it reads as that card's own
+   attached dropdown rather than a separate, floating panel — no title
+   repeating the category's name, since the attachment already makes that
+   obvious. Hidden while that category isn't checked. */
 .category-subtypes-drawer[hidden] {
-  /* [hidden] alone loses to this class's own "display: grid" below at
+  /* [hidden] alone loses to this class's own "display: flex" below at
      equal specificity, since this author rule outranks the UA
      stylesheet's default [hidden] rule — so it needs restating here. */
   display: none;
 }
 
 .category-subtypes-drawer {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  margin: -2px 0 2px;
-}
-
-/* Each checked category's own rectangle — its own border in that
-   category's accent color, standing apart from its neighbors instead of
-   all three sharing one undivided block. */
-.subtype-section {
-  padding: 12px;
-  border: 1.5px solid var(--cat-deep, var(--line-soft));
-  border-radius: 8px;
-  background: var(--paper-card);
-}
-
-.subtype-section-title {
-  display: block;
-  margin-bottom: 8px;
-  color: var(--cat-deep, var(--ink-soft));
-  font-size: 0.76rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-/* A vertical column of chips, one per line — stacked under their
-   category's own header rather than wrapped into a wide horizontal flow,
-   to match the "one column per category" layout above. */
-.subtype-chips {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-}
-
-/* Deliberately not another checkbox-in-a-box like .category: a solid
-   rounded pill with a small dot indicator, filled in with this category's
-   own color once checked — reads as a tag being toggled on/off rather
-   than a form field, closer to a filter chip than a checkbox list. */
-.subtype-chip {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 14px 7px 11px;
-  cursor: pointer;
-  border: 1.5px solid var(--cat-deep, var(--line-soft));
-  border-radius: 999px;
+  gap: 2px;
+  margin-top: -1px;
+  padding: 6px 10px;
+  border: 1px solid var(--brown);
+  border-top: none;
+  border-radius: 0 0 6px 6px;
   background: var(--paper-card);
-  color: var(--cat-deep, var(--ink));
-  font-size: 0.78rem;
-  font-weight: 700;
-  transition: background 120ms ease, color 120ms ease;
 }
 
-.subtype-chip::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  flex: none;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.4;
-  transition: opacity 120ms ease;
-}
-
-.subtype-chip:has(input:checked) {
-  background: var(--cat-deep, var(--brown));
-  color: var(--paper-card);
-}
-
-.subtype-chip:has(input:checked)::before {
-  opacity: 1;
-}
-
-/* The real checkbox stays for keyboard/screen-reader use, invisibly
-   covering the whole pill rather than rendering its own native box. */
-.subtype-chip input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  margin: 0;
+/* A plain checkbox row, not its own boxed/pilled control — the column of
+   options lives inside the one shared rectangle above instead of each
+   being its own little card. */
+.subtype-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 2px;
   cursor: pointer;
-  opacity: 0;
+}
+
+.subtype-option span {
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.subtype-option:has(input:checked) span {
+  color: var(--brown-light);
+}
+
+/* Round rather than square — and in the lighter --brown-light tint rather
+   than the main categories' --brown — so a fine-tuned quality reads as
+   one level down from the category it belongs to, not just a smaller
+   copy of it. A native checkbox can't be restyled this way with
+   accent-color alone (that only recolors the browser's own square
+   control), hence appearance:none and hand-drawn checked state below. */
+.subtype-option input {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin: 0;
+  border: 2px solid var(--brown-light);
+  border-radius: 50%;
+  background: var(--paper-card);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.subtype-option input:checked {
+  background: var(--brown-light);
+  /* An inset white ring rather than a flat fill, so it reads as a
+     selected dot (like a radio button) rather than a solid disc. */
+  box-shadow: inset 0 0 0 3px var(--paper-card);
 }
 
 .recognition-mode,
@@ -1246,11 +1319,6 @@ button.active {
     grid-template-columns: 1fr;
   }
 
-  .category-grid {
-    grid-auto-flow: row;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .control-stack {
     grid-template-rows: none;
   }
@@ -1275,11 +1343,6 @@ button.active {
 @media (max-width: 520px) {
   main {
     width: min(100% - 20px, 1120px);
-  }
-
-  .category-grid {
-    grid-auto-flow: row;
-    grid-template-columns: 1fr;
   }
 
   .input-mode-grid {

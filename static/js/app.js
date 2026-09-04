@@ -5,6 +5,27 @@ import { AVATAR_TRAITS, DEFAULT_AVATAR, avatarHeadImageSrc, renderAvatarMarkup, 
 // progression doesn't specify (or hasn't yet loaded) its own tempo.
 const DEFAULT_TEMPO_BPM = 90;
 
+// The speed slider itself stays a plain 0.5-7 multiplier (unchanged — see
+// its min/max/step in index.html, and scene.js's own DEFAULT_SPEED, the
+// "1x" reference point it scales a custom progression's real tempo by);
+// this only maps that value onto a real musical BPM number for display
+// (see updateHud()), so "Speed" reads like an actual tempo instead of an
+// arbitrary decimal. The slider's own default (2.8) maps onto
+// DEFAULT_TEMPO_BPM (90, a moderato) — matches the exact BPM a fresh page
+// load's default custom-progression tempo already uses, so the two only
+// ever look inconsistent once a song specifies its own different tempo.
+const SPEED_SLIDER_DEFAULT = 2.8;
+
+/**
+ * Convert a speed-slider value to a displayable tempo in BPM (see
+ * SPEED_SLIDER_DEFAULT).
+ * @param {number} speedValue - Raw speed-slider value (0.5-7).
+ * @returns {number} An equivalent whole-number BPM for display.
+ */
+function speedToBpm(speedValue) {
+  return Math.round((speedValue / SPEED_SLIDER_DEFAULT) * DEFAULT_TEMPO_BPM);
+}
+
 const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const keyMap = {
   a: 60,
@@ -266,34 +287,27 @@ const noteNameToPitchClass = {
 // category's plain id only in that case.
 const fineTunedFamiliesByCategory = new Map();
 
-// categoryId -> { label, options: Array<{id, label}> } for every category
-// that has a fine-tune breakdown at all — populated by buildCategoryInputs
-// from /api/modules ("positions" for Inversions, "families" for every
-// other category — see buildCategoryInputs), and read by
-// updateSubtypesDrawer() to build each checked category's drawer section.
+// categoryId -> { options: Array<{id, label}> } for every category that
+// has a fine-tune breakdown at all — populated by buildCategoryInputs from
+// /api/modules ("positions" for Inversions, "families" for every other
+// category), and read by updateSubtypesDrawer() to build each checked
+// category's drawer.
 const categoryFineTuneOptions = new Map();
 
-// categoryId -> which row of 3 cards it's in (0 or 1), and categoryId ->
-// which column within that row (0, 1 or 2) — both populated by
-// buildCategoryInputs. Together they're how updateSubtypesDrawer() places
-// a checked category's section in the same drawer, same column as its own
-// card, so its fine-tune chips read as a column directly under that
-// category rather than one shared block.
-const categoryRowIndex = new Map();
-const categoryColIndex = new Map();
-
-// One drawer per row of 3 category cards, in row order — (re)built fresh
-// by buildCategoryInputs each time (e.g. the offline FALLBACK_CATEGORIES
-// fallback), read and toggled by updateSubtypesDrawer().
-let categoryRowDrawers = [];
+// categoryId -> that category's own drawer element (see
+// buildCategoryInputs, which inserts it as the very next grid item right
+// after that category's card), read and toggled by updateSubtypesDrawer().
+const categoryDrawers = new Map();
 
 /**
  * Render the 6 main category cards — plain checkbox cards, no icon, one
  * shared accent color like every other card on the page (see .category in
- * styles.css) — plus one .category-subtypes-drawer inserted right after
- * every row of 3, so a checked category's fine-tune chips always surface
- * directly under its own row without the cards themselves ever moving.
- * The first category starts checked so a prompt can always be produced.
+ * styles.css). Each category lives in its own .category-cell (a grid item
+ * that stacks the card and, once checked, its .category-subtypes-drawer
+ * vertically via flexbox — see styles.css), so a category's drawer always
+ * attaches directly under its own card, flush against it, without
+ * affecting any other category's position in the grid. The first category
+ * starts checked so a prompt can always be produced.
  * @param {Array<{id: string, label: string, families?: Array<{id: string, label: string}>, positions?: Array<{id: string, label: string}>}>|Array<[string, string]>} modules
  *   Either full module objects from /api/modules — "positions" for
  *   Inversions (which inversion index), "families" for every other
@@ -304,108 +318,78 @@ function buildCategoryInputs(modules) {
   categoriesEl.innerHTML = "";
   fineTunedFamiliesByCategory.clear();
   categoryFineTuneOptions.clear();
-  categoryRowIndex.clear();
-  categoryColIndex.clear();
-  categoryRowDrawers = [];
+  categoryDrawers.clear();
 
-  const rowSize = 3;
   modules.forEach((entry, index) => {
     const isPlainPair = Array.isArray(entry);
     const id = isPlainPair ? entry[0] : entry.id;
     const label = isPlainPair ? entry[1] : entry.label;
     const options = isPlainPair ? undefined : entry.positions || entry.families;
     const checked = index === 0;
-    const rowIndex = Math.floor(index / rowSize);
+
+    const cell = document.createElement("div");
+    cell.className = "category-cell";
 
     const item = document.createElement("label");
     item.className = "category";
     item.dataset.id = id;
     item.innerHTML = `<input type="checkbox" value="${id}" ${checked ? "checked" : ""} /> <span>${label}</span>`;
-    categoriesEl.appendChild(item);
+    cell.appendChild(item);
+    categoriesEl.appendChild(cell);
 
-    categoryRowIndex.set(id, rowIndex);
-    categoryColIndex.set(id, index % rowSize);
-    if (Array.isArray(options) && options.length > 1) {
-      categoryFineTuneOptions.set(id, { label, options });
-      // Starts fully selected — every chip checked — so a checked
-      // category's drawer reads as "everything, uncheck what you don't
-      // want" rather than an empty picker you have to build up from
-      // scratch. Only matters here for the category that starts checked
-      // (index 0); the "change" handler below does the same for every
-      // other category the moment it's checked.
-      if (checked) {
-        fineTunedFamiliesByCategory.set(id, new Set(options.map((option) => option.id)));
-      }
+    if (!Array.isArray(options) || options.length <= 1) {
+      return;
     }
 
-    // Close out this row with its own drawer once every 3rd card lands
-    // (or the very last card, in case a future category count isn't a
-    // clean multiple of 3).
-    if ((index + 1) % rowSize === 0 || index === modules.length - 1) {
-      const drawer = document.createElement("div");
-      drawer.className = "category-subtypes-drawer";
-      drawer.hidden = true;
-      categoriesEl.appendChild(drawer);
-      categoryRowDrawers.push(drawer);
+    categoryFineTuneOptions.set(id, { options });
+    // Starts fully selected — every option checked — so a checked
+    // category's drawer reads as "everything, uncheck what you don't
+    // want" rather than an empty picker you have to build up from
+    // scratch. Only matters here for the category that starts checked
+    // (index 0); the "change" handler below does the same for every other
+    // category the moment it's checked.
+    if (checked) {
+      fineTunedFamiliesByCategory.set(id, new Set(options.map((option) => option.id)));
     }
+
+    const drawer = document.createElement("div");
+    drawer.className = "category-subtypes-drawer";
+    drawer.dataset.category = id;
+    drawer.hidden = !checked;
+    cell.appendChild(drawer);
+    categoryDrawers.set(id, drawer);
   });
 
   updateSubtypesDrawer();
 }
 
 /**
- * Rebuild every row's subtypes drawer from which main categories are
- * currently checked: one .subtype-section per checked category that has a
- * fine-tune breakdown (see categoryFineTuneOptions), placed in its own
- * row and column (see categoryRowIndex/categoryColIndex — same grid
- * position as its own card) and reflecting today's
- * fineTunedFamiliesByCategory selection, if any. Hides a row's drawer
- * entirely when nothing in that row has anything to show. Called once
- * after buildCategoryInputs and again every time a main category checkbox
- * changes.
+ * Rebuild every category's own drawer to match which main categories are
+ * currently checked and, for a checked one, its fineTunedFamiliesByCategory
+ * selection: shown (and filled with one .subtype-option row per option —
+ * a plain checkbox + label, no title repeating the category's own name,
+ * since the drawer already sits attached directly under that category's
+ * card) while its category is checked, hidden and emptied otherwise.
+ * Called once after buildCategoryInputs and again every time a main
+ * category checkbox changes.
  */
 function updateSubtypesDrawer() {
-  categoryRowDrawers.forEach((drawer) => {
+  categoryDrawers.forEach((drawer, id) => {
+    const isChecked = categoriesEl.querySelector(`.category[data-id="${id}"] > input`)?.checked ?? false;
+    drawer.hidden = !isChecked;
     drawer.innerHTML = "";
-  });
-
-  const checkedIds = [...categoriesEl.querySelectorAll(".category > input:checked")].map((input) => input.value);
-  checkedIds.forEach((id) => {
-    const entry = categoryFineTuneOptions.get(id);
-    const drawer = categoryRowDrawers[categoryRowIndex.get(id)];
-    if (!entry || !drawer) {
+    if (!isChecked) {
       return;
     }
 
-    const section = document.createElement("div");
-    section.className = "subtype-section";
-    section.dataset.category = id;
-    // Same column as this category's own card (see .category-grid /
-    // .category-subtypes-drawer both being 3-column grids), so the chips
-    // read as a column directly under it.
-    section.style.gridColumn = String(categoryColIndex.get(id) + 1);
-
-    const title = document.createElement("span");
-    title.className = "subtype-section-title";
-    title.textContent = entry.label;
-    section.appendChild(title);
-
-    const chips = document.createElement("div");
-    chips.className = "subtype-chips";
     const chosen = fineTunedFamiliesByCategory.get(id);
-    entry.options.forEach((option) => {
-      const chip = document.createElement("label");
-      chip.className = "subtype-chip";
-      const isChecked = chosen?.has(option.id) ?? false;
-      chip.innerHTML = `<input type="checkbox" value="${option.id}" ${isChecked ? "checked" : ""} /><span>${option.label}</span>`;
-      chips.appendChild(chip);
+    categoryFineTuneOptions.get(id).options.forEach((option) => {
+      const item = document.createElement("label");
+      item.className = "subtype-option";
+      const isOptionChecked = chosen?.has(option.id) ?? false;
+      item.innerHTML = `<input type="checkbox" value="${option.id}" ${isOptionChecked ? "checked" : ""} /> <span>${option.label}</span>`;
+      drawer.appendChild(item);
     });
-    section.appendChild(chips);
-    drawer.appendChild(section);
-  });
-
-  categoryRowDrawers.forEach((drawer) => {
-    drawer.hidden = drawer.children.length === 0;
   });
 }
 
@@ -446,12 +430,12 @@ categoriesEl.addEventListener("change", (event) => {
     return;
   }
 
-  if (input.closest(".subtype-chip")) {
-    // A fine-tune chip inside some category's drawer section — no "keep
-    // at least one checked" rule here: an empty set is the valid,
-    // expected "use the whole category" state (see
-    // fineTunedFamiliesByCategory).
-    const categoryId = input.closest(".subtype-section")?.dataset.category;
+  const drawer = input.closest(".category-subtypes-drawer");
+  if (drawer) {
+    // A fine-tune option inside some category's own drawer — no "keep at
+    // least one checked" rule here: an empty set is the valid, expected
+    // "nothing from this category" state (see fineTunedFamiliesByCategory).
+    const categoryId = drawer.dataset.category;
     if (!categoryId) {
       return;
     }
@@ -466,7 +450,7 @@ categoriesEl.addEventListener("change", (event) => {
 
   // A main category checkbox. Keep the game always able to produce a
   // prompt: never allow the last checked category to be unchecked.
-  const stillChecked = categoriesEl.querySelectorAll(".category > input:checked").length > 0;
+  const stillChecked = categoriesEl.querySelectorAll(".category-cell > .category > input:checked").length > 0;
   if (!stillChecked) {
     input.checked = true;
     statusEl.textContent = "Keep at least one category.";
@@ -488,6 +472,40 @@ categoriesEl.addEventListener("change", (event) => {
     fineTunedFamiliesByCategory.delete(input.value);
   }
   updateSubtypesDrawer();
+});
+
+// Every "i" info button on the page — one per section header (Player,
+// Song progression, Input device — fixed markup in index.html; Song
+// progression's also covers the chord categories, folded into that one
+// tooltip rather than each category card having its own) — shows/hides
+// its explanation on click, for touch devices where a CSS-only :hover
+// tooltip isn't reachable (desktop already gets it on hover for free —
+// see .info-tooltip in styles.css). One delegated document-level listener
+// covers all of them, wherever they live in the page, plus closes any
+// open tooltip on a click outside it.
+document.addEventListener("click", (event) => {
+  const trigger = event.target.closest(".info-trigger");
+  if (trigger) {
+    // Stops the click from also landing on an enclosing <label>, which
+    // would otherwise toggle that card's radio/checkbox — the player is
+    // asking what it means, not choosing it.
+    event.preventDefault();
+    event.stopPropagation();
+
+    const badge = trigger.closest(".info-badge");
+    const wasOpen = badge.classList.contains("is-open");
+    document.querySelectorAll(".info-badge.is-open").forEach((open) => {
+      open.classList.remove("is-open");
+    });
+    badge.classList.toggle("is-open", !wasOpen);
+    return;
+  }
+
+  if (!event.target.closest(".info-badge")) {
+    document.querySelectorAll(".info-badge.is-open").forEach((open) => {
+      open.classList.remove("is-open");
+    });
+  }
 });
 
 /**
@@ -687,7 +705,7 @@ Object.entries(keyMap).forEach(([key, note]) => {
  */
 function selectedCategories() {
   const tokens = [];
-  categoriesEl.querySelectorAll(".category > input:checked").forEach((input) => {
+  categoriesEl.querySelectorAll(".category-cell > .category > input:checked").forEach((input) => {
     const fineTuned = fineTunedFamiliesByCategory.get(input.value);
     if (fineTuned) {
       tokens.push(...fineTuned);
@@ -1760,7 +1778,7 @@ function updateHud() {
   level = levelForScore(score);
   scoreEl.textContent = `${score} pts`;
   metaEl.textContent = `Level ${level}`;
-  speedValueEl.textContent = speed.toFixed(1);
+  speedValueEl.textContent = `${speedToBpm(speed)} BPM`;
 
   if (score > bestScore) {
     bestScore = score;
@@ -1849,7 +1867,7 @@ function releaseWakeLock() {
  */
 function missingStartRequirement() {
   if (!playerModeEl.querySelector("input:checked")) {
-    return "Choose Practice solo or Join the Chord League first.";
+    return "Choose Practice solo or Join Chord League first.";
   }
   if (!progressionModeEl.querySelector("input:checked")) {
     return "Choose Random practice or Custom progression first.";
