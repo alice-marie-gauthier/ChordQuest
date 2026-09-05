@@ -26,7 +26,10 @@ function speedToBpm(speedValue) {
   return Math.round((speedValue / SPEED_SLIDER_DEFAULT) * DEFAULT_TEMPO_BPM);
 }
 
-const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+// Mirrors models/chords.py's NOTE_NAMES: flats for every black key except
+// F# (matching real fake-book practice), rather than a strict all-sharp or
+// all-flat chromatic scale — see that file's own comment for why.
+const noteNames = ["C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
 const keyMap = {
   a: 60,
   w: 61,
@@ -268,7 +271,8 @@ const noteNameToPitchClass = {
   A: 9,
   "A#": 10,
   Bb: 10,
-  B: 11
+  B: 11,
+  Cb: 11
 };
 
 // Per-category fine-tune state: categoryId -> Set of option ids checked in
@@ -727,7 +731,7 @@ function recognitionMode() {
 /**
  * Get the note name for a MIDI note number, ignoring octave.
  * @param {number} note - A MIDI note number.
- * @returns {string} The note name, e.g. "C#".
+ * @returns {string} The note name, e.g. "Db".
  */
 function midiToName(note) {
   return noteNames[((note % 12) + 12) % 12];

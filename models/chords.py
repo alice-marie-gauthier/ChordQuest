@@ -5,7 +5,20 @@ import random
 from typing import TypedDict
 
 
-NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+# The single display spelling per pitch class (used whenever a note name is
+# derived from a pitch class rather than typed by a player — e.g.
+# recognize_chord's bass note, build_prompt's slash-chord suffix): flats for
+# every black key except F#, matching the spelling most real fake books/lead
+# sheets settle on (Db, Eb, F#, Ab, Bb) rather than a strict "always sharp"
+# or "always flat" chromatic scale. This follows the circle of fifths' own
+# practical convention — see ROOTS below for the 3 enharmonic pairs (C#/Db,
+# F#/Gb, B/Cb) real music genuinely uses both spellings of.
+NOTE_NAMES = ("C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B")
+# Every note name a player might type (e.g. in a custom-progression CSV) or
+# the game might build a prompt from — deliberately more permissive than
+# NOTE_NAMES/ROOTS: even a spelling ROOTS no longer generates prompts for
+# (D#, G#, A#) still parses correctly here, so an existing CSV using one
+# keeps working.
 NOTE_ALIASES = {
     "C": 0,
     "C#": 1,
@@ -24,6 +37,7 @@ NOTE_ALIASES = {
     "A#": 10,
     "Bb": 10,
     "B": 11,
+    "Cb": 11,
 }
 
 
@@ -95,7 +109,16 @@ CHORD_FAMILIES = (
 # fine-grained (single-quality) selection.
 FAMILIES_BY_ID = {family.id: family for family in CHORD_FAMILIES}
 
-ROOTS = ("C", "C#", "Db", "D", "D#", "Eb", "E", "F", "F#", "Gb", "G", "G#", "Ab", "A", "A#", "Bb", "B")
+# Which root spellings the game actually asks players to practice — one per
+# pitch class (Db, Eb, F#, Ab, Bb: see NOTE_NAMES), plus both spellings for
+# the 3 pairs real music genuinely uses either side of interchangeably: C#
+# alongside Db, Gb alongside F#, and Cb alongside B (the "circle of fifths"
+# enharmonic overlap — e.g. Gb major and F# major are both commonly seen).
+# D#, G#, and A# are deliberately left out: in practice those are always
+# spelled Eb, Ab, and Bb instead. (NOTE_ALIASES still understands all of
+# them, so a hand-written CSV using one still parses fine — this only
+# controls what create_prompt_pool ever generates as a prompt.)
+ROOTS = ("C", "C#", "Db", "D", "Eb", "E", "F", "F#", "Gb", "G", "Ab", "A", "Bb", "B", "Cb")
 CATEGORY_LABELS = {
     "major": "Major",
     "minor": "Minor",

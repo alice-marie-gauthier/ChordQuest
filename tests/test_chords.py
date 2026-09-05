@@ -41,8 +41,9 @@ class ChordRecognitionTests(unittest.TestCase):
         # slash-chord notation.
         self.assertEqual(recognize_chord([64, 67, 72])["symbol"], "C/E")
         self.assertEqual(recognize_chord([67, 72, 76])["symbol"], "C/G")
-        # A major (A-C#-E) voiced with C# in the bass is "A/C#".
-        self.assertEqual(recognize_chord([61, 64, 69])["symbol"], "A/C#")
+        # A major (A-C#-E) voiced with C# in the bass is "A/Db" — NOTE_NAMES
+        # spells pitch class 1 as "Db" for display (see models/chords.py).
+        self.assertEqual(recognize_chord([61, 64, 69])["symbol"], "A/Db")
         # Root position never gets a slash suffix.
         self.assertEqual(recognize_chord([48, 52, 67])["symbol"], "C")
 
@@ -112,7 +113,9 @@ class ChordRecognitionTests(unittest.TestCase):
         # resolves as a slash chord instead, which is honestly the more
         # useful reading anyway: it names the actual bass note.
         chord = recognize_chord([60, 63, 68])
-        self.assertEqual(chord["symbol"], "G#/C")
+        # "Ab", not "G#" — NOTE_NAMES spells pitch class 8 as "Ab" for
+        # display (see models/chords.py).
+        self.assertEqual(chord["symbol"], "Ab/C")
         self.assertEqual(chord["family_id"], "major")
 
     def test_recognizes_major_flat_five(self):
@@ -230,7 +233,9 @@ class ChordRecognitionTests(unittest.TestCase):
         second_inversion = build_prompt("A", family_by_id("major"), category="inversions", inversion=2)
 
         self.assertEqual(root_position["symbol"], "A")
-        self.assertEqual(first_inversion["symbol"], "A/C#")
+        # "Db", not "C#" — NOTE_NAMES spells pitch class 1 as "Db" for
+        # display (see models/chords.py).
+        self.assertEqual(first_inversion["symbol"], "A/Db")
         self.assertEqual(second_inversion["symbol"], "A/E")
 
     def test_create_prompt_pool_falls_back_to_major_for_unknown_categories(self):
@@ -251,6 +256,30 @@ class ChordRecognitionTests(unittest.TestCase):
         self.assertIn("Db", roots)
         self.assertIn("F#", roots)
         self.assertIn("Gb", roots)
+
+    def test_roots_follow_the_circle_of_fifths_flat_convention(self):
+        # Flats for every black key except F# (matching real fake-book
+        # practice), plus both spellings for the 3 pairs that are
+        # genuinely used either way: C#/Db, F#/Gb, and B/Cb. D#, G#, and A#
+        # are deliberately not generated as prompts — see ROOTS' comment.
+        self.assertEqual(
+            set(ROOTS),
+            {"C", "C#", "Db", "D", "Eb", "E", "F", "F#", "Gb", "G", "Ab", "A", "Bb", "B", "Cb"},
+        )
+        self.assertNotIn("D#", ROOTS)
+        self.assertNotIn("G#", ROOTS)
+        self.assertNotIn("A#", ROOTS)
+
+    def test_recognized_symbols_use_the_circle_of_fifths_flat_convention(self):
+        # Root position, one per black-key pitch class: flats throughout
+        # except F# (see NOTE_NAMES). Built with build_prompt rather than
+        # literal MIDI notes so this stays readable and self-checking.
+        self.assertEqual(build_prompt("C#", family_by_id("major"))["notes"][0], "Db")
+        self.assertEqual(build_prompt("D#", family_by_id("major"))["notes"][0], "Eb")
+        self.assertEqual(build_prompt("Gb", family_by_id("major"))["notes"][0], "F#")
+        self.assertEqual(build_prompt("G#", family_by_id("major"))["notes"][0], "Ab")
+        self.assertEqual(build_prompt("A#", family_by_id("major"))["notes"][0], "Bb")
+        self.assertEqual(build_prompt("Cb", family_by_id("major"))["notes"][0], "B")
 
     def test_builds_flat_root_prompt(self):
         prompt = build_prompt("Bb", family_by_id("minor"))

@@ -293,7 +293,7 @@ h1 {
      the safety margin has to account for that offset too, not just a
      flat page margin, or the tooltip's own left edge can still spill
      past x=0 even though its width alone respects the viewport. */
-  max-width: min(360px, calc(100vw - 48px));
+  max-width: min(440px, calc(100vw - 48px));
   max-height: 70vh;
   overflow-y: auto;
   padding: 12px 14px;
